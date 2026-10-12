@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "quakecraft",
+	"version": "${version}",
+	"name": "QuakeCraft Bridge",
+	"description": "True two-process passthrough transceiver & depth compositor connecting Quake III Arena (quake3-bridge.exe) with Minecraft 26.3 via Local\\QuakeCraftBridgeV1 shared memory.",
+	"authors": [
+		"QuakeCraft"
+	],
+	"license": "GPL-2.0-only",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.quakecraft.bridge.QuakeCraftMod"
+		],
+		"client": [
+			"dev.quakecraft.bridge.client.QuakeCraftClient"
+		]
+	},
+	"mixins": [
+		"quakecraft.mixins.json",
+		{
+			"config": "quakecraft.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

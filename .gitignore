@@ -1,0 +1,54 @@
+# =============================================================================
+# QuakeCraft .gitignore
+# =============================================================================
+# HARD RULE (universal-modder): NEVER commit retail game files, .pk3 archives,
+# binary toolchains, or build caches.
+
+# Retail Quake 3 game installation & assets
+/Sources/QUAKE3/
+*.pk3
+*.pak
+*.qvm
+
+# Local binary toolchains (pre-installed in workspace)
+/Tools/
+
+# Strict in-project build caches & temporary directories (Zero System Bloat)
+/.build-cache/
+/.gradle/
+/.tmp/
+/.venv/
+/build/
+/lab/
+/backups/
+
+# Minecraft / Gradle build outputs inside mc-bridge
+/mc-bridge/.gradle/
+/mc-bridge/build/
+/mc-bridge/run/
+/mc-bridge/out/
+
+# Compiled binaries and objects
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.map
+*.jar
+!gradle-wrapper.jar
+
+# Logs, captures, and crash dumps
+exceptions.txt
+*.log
+*.dmp
+*.png
+*.jpg
+*.mp4
+!docs/**/*.png
