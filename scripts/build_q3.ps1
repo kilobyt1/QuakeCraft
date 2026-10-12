@@ -263,7 +263,8 @@ $QaGameSources = @(
     "$CodeDir/game/g_utils.c",
     "$CodeDir/game/g_weapon.c",
     "$CodeDir/game/q_math.c",
-    "$CodeDir/game/q_shared.c"
+    "$CodeDir/game/q_shared.c",
+    "$CodeDir/bridge/q3_bridge.c"
 )
 $QaGameObjs = Compile-Objects -TargetName "qagame" -Sources $QaGameSources
 $QaGameDll = "$OutDir\baseq3\qagamex86.dll"
@@ -300,7 +301,8 @@ $CGameSources = @(
     "$CodeDir/cgame/cg_view.c",
     "$CodeDir/cgame/cg_weapons.c",
     "$CodeDir/game/q_math.c",
-    "$CodeDir/game/q_shared.c"
+    "$CodeDir/game/q_shared.c",
+    "$CodeDir/bridge/q3_bridge.c"
 )
 $CGameObjs = Compile-Objects -TargetName "cgame" -Sources $CGameSources -ExtraFlags @("-I$CodeDir/cgame")
 $CGameDll = "$OutDir\baseq3\cgamex86.dll"

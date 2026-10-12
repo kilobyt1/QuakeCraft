@@ -1363,12 +1363,14 @@ void GLimp_Init( void )
 		ri.Error( ERR_FATAL, "GLimp_Init() - incorrect operating system\n" );
 	}
 
-	// save off hInstance and wndproc
-	cv = ri.Cvar_Get( "win_hinstance", "", 0 );
-	sscanf( cv->string, "%i", (int *)&g_wv.hInstance );
-
-	cv = ri.Cvar_Get( "win_wndproc", "", 0 );
-	sscanf( cv->string, "%i", (int *)&glw_state.wndproc );
+	// save off hInstance and wndproc (preserve full 64-bit pointers)
+	{
+		extern LONG WINAPI MainWndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam );
+		if ( !g_wv.hInstance ) {
+			g_wv.hInstance = GetModuleHandle( NULL );
+		}
+		glw_state.wndproc = MainWndProc;
+	}
 
 	r_allowSoftwareGL = ri.Cvar_Get( "r_allowSoftwareGL", "0", CVAR_LATCH );
 	r_maskMinidriver = ri.Cvar_Get( "r_maskMinidriver", "0", CVAR_LATCH );

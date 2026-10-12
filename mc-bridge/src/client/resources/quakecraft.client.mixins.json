@@ -3,7 +3,10 @@
 	"minVersion": "0.8",
 	"package": "dev.quakecraft.bridge.client.mixin",
 	"compatibilityLevel": "JAVA_25",
-	"client": [],
+	"client": [
+		"CameraMixin",
+		"LocalPlayerMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	}

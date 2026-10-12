@@ -1039,6 +1039,8 @@ void ClientBegin( int clientNum ) {
 	CalculateRanks();
 }
 
+#include "../bridge/q3_bridge.h"
+
 /*
 ===========
 ClientSpawn
@@ -1187,6 +1189,41 @@ void ClientSpawn(gentity_t *ent) {
 	client->ps.ammo[WP_GAUNTLET] = -1;
 	client->ps.ammo[WP_GRAPPLING_HOOK] = -1;
 
+	if ( QCB_IsActive() && !(ent->r.svFlags & SVF_BOT) ) {
+		vec3_t tpOrig;
+		float tpYaw = 0.0f;
+		uint32_t tpSeq = 0;
+
+		client->ps.stats[STAT_WEAPONS] =
+			(1 << WP_GAUNTLET) |
+			(1 << WP_MACHINEGUN) |
+			(1 << WP_SHOTGUN) |
+			(1 << WP_GRENADE_LAUNCHER) |
+			(1 << WP_ROCKET_LAUNCHER) |
+			(1 << WP_LIGHTNING) |
+			(1 << WP_RAILGUN) |
+			(1 << WP_PLASMAGUN) |
+			(1 << WP_BFG);
+		client->ps.ammo[WP_GAUNTLET]         = -1;
+		client->ps.ammo[WP_MACHINEGUN]       = 200;
+		client->ps.ammo[WP_SHOTGUN]          = 50;
+		client->ps.ammo[WP_GRENADE_LAUNCHER] = 50;
+		client->ps.ammo[WP_ROCKET_LAUNCHER]  = 50;
+		client->ps.ammo[WP_LIGHTNING]        = 200;
+		client->ps.ammo[WP_RAILGUN]          = 50;
+		client->ps.ammo[WP_PLASMAGUN]        = 200;
+		client->ps.ammo[WP_BFG]              = 25;
+
+		if ( QCB_CheckPendingTeleport( tpOrig, &tpYaw, &tpSeq ) ) {
+			VectorCopy( tpOrig, spawn_origin );
+			VectorSet( spawn_angles, 0.0f, tpYaw, 0.0f );
+			QCB_AckTeleport( tpSeq );
+		} else if ( QCB_HasVoxels() ) {
+			VectorSet( spawn_origin, 0.0f, 0.0f, 24.0f );
+			VectorSet( spawn_angles, 0.0f, 0.0f, 0.0f );
+		}
+	}
+
 	// health will count down towards max_health
 	ent->health = client->ps.stats[STAT_HEALTH] = client->ps.stats[STAT_MAX_HEALTH] + 25;
 
@@ -1198,6 +1235,11 @@ void ClientSpawn(gentity_t *ent) {
 
 	trap_GetUsercmd( client - level.clients, &ent->client->pers.cmd );
 	SetClientViewAngle( ent, spawn_angles );
+	if ( QCB_IsActive() && !(ent->r.svFlags & SVF_BOT) ) {
+		client->ps.delta_angles[0] = 0;
+		client->ps.delta_angles[1] = 0;
+		client->ps.delta_angles[2] = 0;
+	}
 
 	if ( ent->client->sess.sessionTeam == TEAM_SPECTATOR ) {
 
@@ -1227,7 +1269,9 @@ void ClientSpawn(gentity_t *ent) {
 		MoveClientToIntermission( ent );
 	} else {
 		// fire the targets of the spawn point
-		G_UseTargets( spawnPoint, ent );
+		if ( !QCB_HasVoxels() ) {
+			G_UseTargets( spawnPoint, ent );
+		}
 
 		// select the highest weapon number available, after any
 		// spawn given items have fired
@@ -1237,6 +1281,9 @@ void ClientSpawn(gentity_t *ent) {
 				client->ps.weapon = i;
 				break;
 			}
+		}
+		if ( QCB_IsActive() && !(ent->r.svFlags & SVF_BOT) ) {
+			client->ps.weapon = WP_ROCKET_LAUNCHER;
 		}
 	}
 

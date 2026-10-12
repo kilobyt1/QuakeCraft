@@ -1141,6 +1141,8 @@ void CM_TraceThroughTree( traceWork_t *tw, int num, float p1f, float p2f, vec3_t
 //======================================================================
 
 
+#include "../bridge/q3_bridge.h"
+
 /*
 ==================
 CM_Trace
@@ -1152,6 +1154,12 @@ void CM_Trace( trace_t *results, const vec3_t start, const vec3_t end, vec3_t mi
 	traceWork_t	tw;
 	vec3_t		offset;
 	cmodel_t	*cmod;
+
+	if ( model == 0 && QCB_HasVoxels() ) {
+		c_traces++;
+		QCB_VoxelTrace( results, start, end, mins, maxs, brushmask );
+		return;
+	}
 
 	cmod = CM_ClipHandleToModel( model );
 

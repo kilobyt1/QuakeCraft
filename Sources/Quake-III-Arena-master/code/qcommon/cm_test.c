@@ -217,6 +217,8 @@ int CM_BoxBrushes( const vec3_t mins, const vec3_t maxs, cbrush_t **list, int li
 //====================================================================
 
 
+#include "../bridge/q3_bridge.h"
+
 /*
 ==================
 CM_PointContents
@@ -232,6 +234,10 @@ int CM_PointContents( const vec3_t p, clipHandle_t model ) {
 	int			contents;
 	float		d;
 	cmodel_t	*clipm;
+
+	if ( model == 0 && QCB_HasVoxels() ) {
+		return QCB_VoxelPointContents( p );
+	}
 
 	if (!cm.numNodes) {	// map not loaded
 		return 0;

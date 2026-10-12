@@ -275,6 +275,8 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, sharedEntity_t *gEnt, snapsh
 	eNums->numSnapshotEntities++;
 }
 
+#include "../bridge/q3_bridge.h"
+
 /*
 ===============
 SV_AddEntitiesVisibleFromPoint
@@ -356,7 +358,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		}
 
 		// broadcast entities are always sent
-		if ( ent->r.svFlags & SVF_BROADCAST ) {
+		if ( ent->r.svFlags & SVF_BROADCAST || QCB_IsActive() ) {
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
 			continue;
 		}

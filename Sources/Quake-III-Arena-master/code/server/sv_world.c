@@ -138,6 +138,8 @@ worldSector_t *SV_CreateworldSector( int depth, vec3_t mins, vec3_t maxs ) {
 	return anode;
 }
 
+#include "../bridge/q3_bridge.h"
+
 /*
 ===============
 SV_ClearWorld
@@ -154,6 +156,10 @@ void SV_ClearWorld( void ) {
 	// get world map bounds
 	h = CM_InlineModel( 0 );
 	CM_ModelBounds( h, mins, maxs );
+	if ( QCB_IsActive() ) {
+		VectorSet( mins, -65536.0f, -65536.0f, -65536.0f );
+		VectorSet( maxs,  65536.0f,  65536.0f,  65536.0f );
+	}
 	SV_CreateworldSector( 0, mins, maxs );
 }
 
@@ -291,7 +297,7 @@ void SV_LinkEntity( sharedEntity_t *gEnt ) {
 
 	// if none of the leafs were inside the map, the
 	// entity is outside the world and can be considered unlinked
-	if ( !num_leafs ) {
+	if ( !num_leafs && !QCB_IsActive() ) {
 		return;
 	}
 

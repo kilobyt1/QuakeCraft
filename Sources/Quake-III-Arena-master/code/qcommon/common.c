@@ -1527,7 +1527,7 @@ void Com_InitHunkMemory( void ) {
 		Com_Error( ERR_FATAL, "Hunk data failed to allocate %i megs", s_hunkTotal / (1024*1024) );
 	}
 	// cacheline align
-	s_hunkData = (byte *) ( ( (int)s_hunkData + 31 ) & ~31 );
+	s_hunkData = (byte *) ( ( (intptr_t)s_hunkData + 31 ) & ~(intptr_t)31 );
 	Hunk_Clear();
 
 	Cmd_AddCommand( "meminfo", Com_Meminfo_f );
@@ -2343,6 +2343,8 @@ static void Com_WriteCDKey( const char *filename, const char *ikey ) {
 #endif
 
 
+#include "../bridge/q3_bridge.h"
+
 /*
 =================
 Com_Init
@@ -2497,6 +2499,8 @@ void Com_Init( char *commandLine ) {
 	// make sure single player is off by default
 	Cvar_Set("ui_singlePlayerActive", "0");
 
+	QCB_Init();
+
 	com_fullyInitialized = qtrue;
 	Com_Printf ("--- Common Initialization Complete ---\n");	
 }
@@ -2648,6 +2652,7 @@ void Com_Frame( void ) {
 
 
 
+
 	if ( setjmp (abortframe) ) {
 		return;			// an ERR_DROP was thrown
 	}
@@ -2702,6 +2707,8 @@ void Com_Frame( void ) {
 	// mess with msec if needed
 	com_frameMsec = msec;
 	msec = Com_ModifyMsec( msec );
+
+	QCB_Frame();
 
 	//
 	// server side
@@ -2803,6 +2810,8 @@ Com_Shutdown
 =================
 */
 void Com_Shutdown (void) {
+	QCB_Shutdown();
+
 	if (logfile) {
 		FS_FCloseFile (logfile);
 		logfile = 0;

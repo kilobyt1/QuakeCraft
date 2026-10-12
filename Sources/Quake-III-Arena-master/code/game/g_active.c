@@ -753,6 +753,8 @@ If "g_synchronousClients 1" is set, this will be called exactly
 once for each server frame, which makes for smooth demo recording.
 ==============
 */
+#include "../bridge/q3_bridge.h"
+
 void ClientThink_real( gentity_t *ent ) {
 	gclient_t	*client;
 	pmove_t		pm;
@@ -768,6 +770,28 @@ void ClientThink_real( gentity_t *ent ) {
 	}
 	// mark the time, so the connection sprite can be removed
 	ucmd = &ent->client->pers.cmd;
+
+	if ( QCB_IsActive() && !(ent->r.svFlags & SVF_BOT) ) {
+		vec3_t tpOrig;
+		float tpYaw = 0.0f;
+		uint32_t tpSeq = 0;
+
+		client->ps.delta_angles[0] = 0;
+		client->ps.delta_angles[1] = 0;
+		client->ps.delta_angles[2] = 0;
+
+		if ( QCB_CheckPendingTeleport( tpOrig, &tpYaw, &tpSeq ) ) {
+			if ( client->ps.stats[STAT_HEALTH] <= 0 ) {
+				respawn( ent );
+			}
+			VectorCopy( tpOrig, client->ps.origin );
+			VectorClear( client->ps.velocity );
+			client->ps.eFlags ^= EF_TELEPORT_BIT;
+			G_SetOrigin( ent, tpOrig );
+			trap_LinkEntity( ent );
+			QCB_AckTeleport( tpSeq );
+		}
+	}
 
 	// sanity check the command time to prevent speedup cheating
 	if ( ucmd->serverTime > level.time + 200 ) {
@@ -971,7 +995,7 @@ void ClientThink_real( gentity_t *ent ) {
 
 	// link entity now, after any personal teleporters have been used
 	trap_LinkEntity (ent);
-	if ( !ent->client->noclip ) {
+	if ( !ent->client->noclip && !QCB_HasVoxels() ) {
 		G_TouchTriggers( ent );
 	}
 
@@ -993,6 +1017,10 @@ void ClientThink_real( gentity_t *ent ) {
 	client->oldbuttons = client->buttons;
 	client->buttons = ucmd->buttons;
 	client->latched_buttons |= client->buttons & ~client->oldbuttons;
+
+	if ( QCB_IsActive() && !(ent->r.svFlags & SVF_BOT) ) {
+		QCB_PublishPlayerPose( &client->ps );
+	}
 
 	// check for respawning
 	if ( client->ps.stats[STAT_HEALTH] <= 0 ) {
@@ -1182,6 +1210,10 @@ void ClientEndFrame( gentity_t *ent ) {
 		BG_PlayerStateToEntityState( &ent->client->ps, &ent->s, qtrue );
 	}
 	SendPendingPredictableEvents( &ent->client->ps );
+
+	if ( QCB_IsActive() && !(ent->r.svFlags & SVF_BOT) ) {
+		QCB_PublishPlayerPose( &ent->client->ps );
+	}
 
 	// set the bit for the reachability area the client is currently in
 //	i = trap_AAS_PointReachabilityAreaIndex( ent->client->ps.origin );

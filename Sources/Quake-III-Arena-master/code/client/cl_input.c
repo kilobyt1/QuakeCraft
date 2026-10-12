@@ -519,6 +519,8 @@ void CL_FinishMove( usercmd_t *cmd ) {
 }
 
 
+#include "../bridge/q3_bridge.h"
+
 /*
 =================
 CL_CreateCmd
@@ -552,6 +554,9 @@ usercmd_t CL_CreateCmd( void ) {
 	} else if ( oldAngles[PITCH] - cl.viewangles[PITCH] > 90 ) {
 		cl.viewangles[PITCH] = oldAngles[PITCH] - 90;
 	} 
+
+	// apply Minecraft shared memory input if active
+	QCB_ApplyClientInput( &cmd, cl.viewangles, &cl.cgameUserCmdValue );
 
 	// store out the final values
 	CL_FinishMove( &cmd );
