@@ -973,16 +973,18 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		damage *= 0.5;
 	}
 
+#include "../bridge/q3_bridge.h"
+
 	// add to the attacker's hit counter (if the target isn't a general entity like a prox mine)
 	if ( attacker->client && targ != attacker && targ->health > 0
 			&& targ->s.eType != ET_MISSILE
 			&& targ->s.eType != ET_GENERAL) {
-		if ( OnSameTeam( targ, attacker ) ) {
+		if ( targ->client && OnSameTeam( targ, attacker ) ) {
 			attacker->client->ps.persistant[PERS_HITS]--;
 		} else {
 			attacker->client->ps.persistant[PERS_HITS]++;
 		}
-		attacker->client->ps.persistant[PERS_ATTACKEE_ARMOR] = (targ->health<<8)|(client->ps.stats[STAT_ARMOR]);
+		attacker->client->ps.persistant[PERS_ATTACKEE_ARMOR] = (targ->health<<8)|(client ? client->ps.stats[STAT_ARMOR] : 0);
 	}
 
 	// always give half damage if hurting self
@@ -1040,6 +1042,53 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		// set the last client who damaged the target
 		targ->client->lasthurt_client = attacker->s.number;
 		targ->client->lasthurt_mod = mod;
+	}
+
+	// QuakeCraft: check if target is a Minecraft proxy actor
+	if ( targ->s.number >= QCB_PROXY_BASE_ENTNUM &&
+	     targ->s.number < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS &&
+	     take > 0 ) {
+		vec3_t kvel = {0.0f, 0.0f, 0.0f};
+		vec3_t hitPos;
+		int isGib = 0;
+		int weapId = (inflictor && inflictor->s.weapon) ? inflictor->s.weapon :
+		             ((attacker && attacker->client) ? attacker->client->ps.weapon : mod);
+
+		if ( dir && knockback > 0 ) {
+			VectorScale( dir, g_knockback.value * (float)knockback / 200.0f, kvel );
+		}
+		if ( point ) {
+			VectorCopy( point, hitPos );
+		} else {
+			VectorCopy( targ->r.currentOrigin, hitPos );
+		}
+
+		targ->health -= take;
+		if ( targ->health <= GIB_HEALTH || (take >= 80 && targ->health <= 0) ) {
+			isGib = 1;
+		}
+
+		/* Spawn genuine Quake 3 blood & gibs in 3D space */
+		if ( isGib ) {
+			G_TempEntity( targ->r.currentOrigin, EV_GIB_PLAYER );
+		} else {
+			gentity_t *tent = G_TempEntity( hitPos, EV_MISSILE_HIT );
+			tent->s.otherEntityNum = targ->s.number;
+			tent->s.eventParm = dir ? DirToByte( dir ) : 0;
+			tent->s.weapon = weapId;
+		}
+
+		if ( mod == MOD_GAUNTLET && targ->health <= 0 && attacker && attacker->client ) {
+			attacker->client->ps.persistant[PERS_GAUNTLET_FRAG_COUNT]++;
+		}
+
+		QCB_EmitDamageEntity( targ->count, take, weapId, isGib, kvel, hitPos );
+
+		if ( targ->health <= 0 ) {
+			targ->takedamage = qfalse;
+			trap_UnlinkEntity( targ );
+		}
+		return;
 	}
 
 	// do the damage

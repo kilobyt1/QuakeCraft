@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 public final class QuakeCraftClient implements ClientModInitializer {
 	public static SharedMemoryBridge bridge;
 	public static final PlayerControllerSync CONTROLLER = new PlayerControllerSync();
+	public static final ActorSyncAndCombat COMBAT = new ActorSyncAndCombat();
 	public static final QuakeFrameCompositor COMPOSITOR = new QuakeFrameCompositor();
 
 	@Override
@@ -24,6 +25,7 @@ public final class QuakeCraftClient implements ClientModInitializer {
 
 		ClientTickEvents.START_CLIENT_TICK.register(client -> {
 			CONTROLLER.onClientTick(client, bridge);
+			COMBAT.onClientTick(client, bridge, CONTROLLER);
 		});
 	}
 }

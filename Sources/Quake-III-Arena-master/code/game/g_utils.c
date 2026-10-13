@@ -386,6 +386,8 @@ instead of being removed and recreated, which can cause interpolated
 angles and bad trails.
 =================
 */
+#include "../bridge/q3_bridge.h"
+
 gentity_t *G_Spawn( void ) {
 	int			i, force;
 	gentity_t	*e;
@@ -398,6 +400,9 @@ gentity_t *G_Spawn( void ) {
 		e = &g_entities[MAX_CLIENTS];
 		for ( i = MAX_CLIENTS ; i<level.num_entities ; i++, e++) {
 			if ( e->inuse ) {
+				continue;
+			}
+			if ( i >= QCB_PROXY_BASE_ENTNUM && i < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS ) {
 				continue;
 			}
 
@@ -423,6 +428,11 @@ gentity_t *G_Spawn( void ) {
 	}
 	
 	// open up a new slot
+	while ( level.num_entities >= QCB_PROXY_BASE_ENTNUM &&
+	        level.num_entities < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS ) {
+		level.num_entities++;
+	}
+	e = &g_entities[level.num_entities];
 	level.num_entities++;
 
 	// let the server system know that there are more entities
@@ -445,6 +455,9 @@ qboolean G_EntitiesFree( void ) {
 	e = &g_entities[MAX_CLIENTS];
 	for ( i = MAX_CLIENTS; i < level.num_entities; i++, e++) {
 		if ( e->inuse ) {
+			continue;
+		}
+		if ( i >= QCB_PROXY_BASE_ENTNUM && i < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS ) {
 			continue;
 		}
 		// slot available

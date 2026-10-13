@@ -66,6 +66,8 @@ void Weapon_Gauntlet( gentity_t *ent ) {
 CheckGauntletAttack
 ===============
 */
+#include "../bridge/q3_bridge.h"
+
 qboolean CheckGauntletAttack( gentity_t *ent ) {
 	trace_t		tr;
 	vec3_t		end;
@@ -96,6 +98,9 @@ qboolean CheckGauntletAttack( gentity_t *ent ) {
 	}
 
 	if ( !traceEnt->takedamage) {
+		if ( QCB_IsActive() && tr.fraction < 1.0f && tr.entityNum == ENTITYNUM_WORLD ) {
+			QCB_EmitBreakBlock( WP_GAUNTLET, tr.endpos, tr.plane.normal );
+		}
 		return qfalse;
 	}
 
@@ -220,11 +225,13 @@ void Bullet_Fire (gentity_t *ent, float spread, int damage ) {
 			}
 			else {
 #endif
-				G_Damage( traceEnt, ent, ent, forward, tr.endpos,
-					damage, 0, MOD_MACHINEGUN);
+			G_Damage( traceEnt, ent, ent, forward, tr.endpos,
+				damage, 0, MOD_MACHINEGUN);
 #ifdef MISSIONPACK
 			}
 #endif
+		} else if ( QCB_IsActive() && tr.fraction < 1.0f && tr.entityNum == ENTITYNUM_WORLD && (tr.surfaceFlags & SURF_METALSTEPS) ) {
+			QCB_EmitBreakBlock( WP_MACHINEGUN, tr.endpos, tr.plane.normal );
 		}
 		break;
 	}
@@ -312,6 +319,8 @@ qboolean ShotgunPellet( vec3_t start, vec3_t end, gentity_t *ent ) {
 					return qtrue;
 				}
 #endif
+		} else if ( QCB_IsActive() && tr.fraction < 1.0f && tr.entityNum == ENTITYNUM_WORLD && (tr.surfaceFlags & SURF_METALSTEPS) ) {
+			QCB_EmitBreakBlock( WP_SHOTGUN, tr.endpos, tr.plane.normal );
 		}
 		return qfalse;
 	}
@@ -464,6 +473,9 @@ void weapon_railgun_fire (gentity_t *ent) {
 	do {
 		trap_Trace (&trace, muzzle, NULL, NULL, end, passent, MASK_SHOT );
 		if ( trace.entityNum >= ENTITYNUM_MAX_NORMAL ) {
+			if ( QCB_IsActive() && trace.fraction < 1.0f && trace.entityNum == ENTITYNUM_WORLD ) {
+				QCB_EmitBreakBlock( WP_RAILGUN, trace.endpos, trace.plane.normal );
+			}
 			break;
 		}
 		traceEnt = &g_entities[ trace.entityNum ];
@@ -496,7 +508,8 @@ void weapon_railgun_fire (gentity_t *ent) {
 				G_Damage (traceEnt, ent, ent, forward, trace.endpos, damage, 0, MOD_RAILGUN);
 			}
 #else
-				if( LogAccuracyHit( traceEnt, ent ) ) {
+				if( LogAccuracyHit( traceEnt, ent ) ||
+				    (traceEnt->s.number >= QCB_PROXY_BASE_ENTNUM && traceEnt->s.number < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS) ) {
 					hits++;
 				}
 				G_Damage (traceEnt, ent, ent, forward, trace.endpos, damage, 0, MOD_RAILGUN);
@@ -669,6 +682,8 @@ void Weapon_LightningFire( gentity_t *ent ) {
 				G_Damage( traceEnt, ent, ent, forward, tr.endpos,
 					damage, 0, MOD_LIGHTNING);
 #endif
+		} else if ( QCB_IsActive() && tr.fraction < 1.0f && tr.entityNum == ENTITYNUM_WORLD && (tr.surfaceFlags & SURF_METALSTEPS) ) {
+			QCB_EmitBreakBlock( WP_LIGHTNING, tr.endpos, tr.plane.normal );
 		}
 
 		if ( traceEnt->takedamage && traceEnt->client ) {

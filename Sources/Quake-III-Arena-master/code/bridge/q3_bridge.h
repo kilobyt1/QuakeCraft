@@ -58,6 +58,15 @@ uint8_t *QCB_GetActiveOverlayRgbaBuffer(void);
 void QCB_ConvertWindowDepthToLinearQ3Units(int width, int height, float zNear, float zFar);
 void QCB_PublishCapturedFrame(void);
 
+/* Stage 4: Two-Way Combat, Proxy Entities & World Events */
+#define QCB_PROXY_BASE_ENTNUM   512
+
+void QCB_PushEventToMc(const QcbEvent *ev);
+qboolean QCB_PopEventFromMc(QcbEvent *outEv);
+void QCB_EmitDamageEntity(int mcEntityId, int damageQ3, int weaponId, int isGib, const float knockbackQ3[3], const float hitPosQ3[3]);
+void QCB_EmitExplosion(int weaponId, float radiusQ3, const float posQ3[3]);
+void QCB_EmitBreakBlock(int weaponId, const float hitPosQ3[3], const float normalQ3[3]);
+
 #ifdef __cplusplus
 }
 #endif

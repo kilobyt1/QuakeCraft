@@ -1704,6 +1704,165 @@ void G_RunThink (gentity_t *ent) {
 	ent->think (ent);
 }
 
+#include "../bridge/q3_bridge.h"
+
+static void QCB_ProxyActorDie( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int damage, int mod ) {
+	/* Handled in G_Damage via QCB_EmitDamageEntity */
+}
+
+static void QCB_SyncGameWorld( void ) {
+	QcbSharedMemory *shm = QCB_GetShm();
+	QcbEvent ev;
+	int i;
+
+	if ( !shm || !QCB_IsActive() ) {
+		return;
+	}
+
+	/* Ensure level.num_entities covers the proxy actor range */
+	if ( level.num_entities < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS ) {
+		level.num_entities = QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS;
+		trap_LocateGameData( level.gentities, level.num_entities, sizeof( gentity_t ),
+			&level.clients[0].ps, sizeof( level.clients[0] ) );
+	}
+
+	/* Sync Minecraft LivingEntity actors into reserved gentity_t slots */
+	uint32_t count = shm->actors.count;
+	if ( count > QCB_MAX_ACTORS ) {
+		count = QCB_MAX_ACTORS;
+	}
+
+	for ( i = 0; i < QCB_MAX_ACTORS; i++ ) {
+		int entNum = QCB_PROXY_BASE_ENTNUM + i;
+		gentity_t *ent = &g_entities[entNum];
+
+		if ( (uint32_t)i < count && (shm->actors.actors[i].flags & 1U) && shm->actors.actors[i].healthQ3 > 0.0f ) {
+			const QcbActorSlot *slot = &shm->actors.actors[i];
+			float hw = (slot->halfWidth > 2.0f) ? slot->halfWidth : 10.0f;
+			float hh = (slot->height > 4.0f) ? (slot->height * 0.5f) : 32.0f;
+
+			if ( !ent->inuse ) {
+				memset( ent, 0, sizeof(*ent) );
+				G_InitGentity( ent );
+			}
+			ent->classname      = "qcb_mc_actor";
+			ent->s.number       = entNum;
+			ent->s.eType        = ET_INVISIBLE; /* Invisible in Q3 renderer; MC renders the mob */
+			ent->r.contents     = CONTENTS_BODY;
+			ent->clipmask       = MASK_PLAYERSOLID;
+			ent->takedamage     = qtrue;
+			ent->die            = QCB_ProxyActorDie;
+			ent->count          = slot->mcEntityId;
+			ent->health         = (int)ceilf( slot->healthQ3 );
+			if ( ent->health < 1 ) {
+				ent->health = 1;
+			}
+
+			VectorSet( ent->r.mins, -hw, -hw, -hh );
+			VectorSet( ent->r.maxs,  hw,  hw,  hh );
+
+			G_SetOrigin( ent, (float *)slot->q3Origin );
+			VectorCopy( slot->q3Velocity, ent->s.pos.trDelta );
+			trap_LinkEntity( ent );
+		} else {
+			if ( ent->inuse ) {
+				trap_UnlinkEntity( ent );
+				ent->inuse = qfalse;
+				ent->takedamage = qfalse;
+				ent->r.contents = 0;
+			}
+		}
+	}
+
+	/* Sync killCount from Minecraft into PERS_SCORE for HUD frag counter */
+	gentity_t *player = &g_entities[0];
+	if ( player->inuse && player->client ) {
+		if ( shm->header.input.killCount > player->client->ps.persistant[PERS_SCORE] ) {
+			int prevKills = player->client->ps.persistant[PERS_SCORE];
+			player->client->ps.persistant[PERS_SCORE] = shm->header.input.killCount;
+			level.clients[0].ps.persistant[PERS_SCORE] = shm->header.input.killCount;
+			if ( shm->header.input.killCount - prevKills >= 2 ) {
+				player->client->ps.persistant[PERS_EXCELLENT_COUNT]++;
+			}
+		}
+
+		/* Keep ammo stocked in passthrough sandbox if player runs dry */
+		for ( i = WP_MACHINEGUN; i <= WP_BFG; i++ ) {
+			player->client->ps.stats[STAT_WEAPONS] |= ( 1 << i );
+			if ( player->client->ps.ammo[i] <= 0 ) {
+				player->client->ps.ammo[i] = 50;
+			}
+		}
+	}
+
+	/* Drain incoming events from Minecraft (MC -> Q3) */
+	while ( QCB_PopEventFromMc( &ev ) ) {
+		if ( !player->inuse || !player->client ) {
+			continue;
+		}
+		if ( ev.type == QCB_EV_PLAYER_HURT ) {
+			int dmg = ev.intParam1;
+			if ( dmg > 0 && player->health > 0 ) {
+				vec3_t dir;
+				VectorCopy( ev.vecA, dir );
+				if ( VectorLengthSquared( dir ) < 0.01f ) {
+					VectorSet( dir, 0.0f, 0.0f, 1.0f );
+				}
+				G_Damage( player, NULL, NULL, dir, player->r.currentOrigin, dmg, 0, MOD_UNKNOWN );
+			}
+		} else if ( ev.type == QCB_EV_GIVE_ITEM ) {
+			int itemType = ev.targetId;
+			int amount = (ev.intParam1 > 0) ? ev.intParam1 : 25;
+			switch ( itemType ) {
+			case QCB_ITEM_HEALTH_SMALL:
+				player->health += 5;
+				if ( player->health > 200 ) player->health = 200;
+				player->client->ps.stats[STAT_HEALTH] = player->health;
+				break;
+			case QCB_ITEM_HEALTH_MEDIUM:
+			case QCB_ITEM_HEALTH_LARGE:
+				if ( player->health < 100 ) {
+					player->health += amount;
+					if ( player->health > 100 ) player->health = 100;
+					player->client->ps.stats[STAT_HEALTH] = player->health;
+				}
+				break;
+			case QCB_ITEM_MEGA_HEALTH:
+				player->health += 100;
+				if ( player->health > 200 ) player->health = 200;
+				player->client->ps.stats[STAT_HEALTH] = player->health;
+				break;
+			case QCB_ITEM_ARMOR_SHARD:
+			case QCB_ITEM_ARMOR_COMBAT:
+			case QCB_ITEM_ARMOR_BODY:
+				player->client->ps.stats[STAT_ARMOR] += amount;
+				if ( player->client->ps.stats[STAT_ARMOR] > 200 ) {
+					player->client->ps.stats[STAT_ARMOR] = 200;
+				}
+				break;
+			case QCB_ITEM_QUAD_DAMAGE:
+				player->client->ps.powerups[PW_QUAD] = level.time + 30000;
+				G_AddEvent( player, EV_POWERUP_QUAD, 0 );
+				break;
+			case QCB_ITEM_HASTE:
+				player->client->ps.powerups[PW_HASTE] = level.time + 30000;
+				break;
+			case QCB_ITEM_REGEN:
+				player->client->ps.powerups[PW_REGEN] = level.time + 30000;
+				G_AddEvent( player, EV_POWERUP_REGEN, 0 );
+				break;
+			case QCB_ITEM_AMMO_PACK:
+				for ( i = WP_MACHINEGUN; i <= WP_BFG; i++ ) {
+					player->client->ps.ammo[i] = 200;
+				}
+				break;
+			default:
+				break;
+			}
+		}
+	}
+}
+
 /*
 ================
 G_RunFrame
@@ -1730,6 +1889,9 @@ int start, end;
 	// get any cvar changes
 	G_UpdateCvars();
 
+	// Sync Minecraft proxy entities & incoming events before running frame
+	QCB_SyncGameWorld();
+
 	//
 	// go through all allocated objects
 	//
@@ -1737,6 +1899,9 @@ int start, end;
 	ent = &g_entities[0];
 	for (i=0 ; i<level.num_entities ; i++, ent++) {
 		if ( !ent->inuse ) {
+			continue;
+		}
+		if ( i >= QCB_PROXY_BASE_ENTNUM && i < QCB_PROXY_BASE_ENTNUM + QCB_MAX_ACTORS ) {
 			continue;
 		}
 

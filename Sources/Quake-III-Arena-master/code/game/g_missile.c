@@ -63,6 +63,8 @@ G_ExplodeMissile
 Explode a missile without an impact
 ================
 */
+#include "../bridge/q3_bridge.h"
+
 void G_ExplodeMissile( gentity_t *ent ) {
 	vec3_t		dir;
 	vec3_t		origin;
@@ -82,6 +84,9 @@ void G_ExplodeMissile( gentity_t *ent ) {
 
 	// splash damage
 	if ( ent->splashDamage ) {
+		if ( QCB_IsActive() && ent->splashRadius >= 40.0f ) {
+			QCB_EmitExplosion( ent->s.weapon, (float)ent->splashRadius, ent->r.currentOrigin );
+		}
 		if( G_RadiusDamage( ent->r.currentOrigin, ent->parent, ent->splashDamage, ent->splashRadius, ent
 			, ent->splashMethodOfDeath ) ) {
 			g_entities[ent->r.ownerNum].client->accuracy_hits++;
@@ -428,6 +433,15 @@ void G_MissileImpact( gentity_t *ent, trace_t *trace ) {
 
 	// splash damage (doesn't apply to person directly hit)
 	if ( ent->splashDamage ) {
+		if ( QCB_IsActive() ) {
+			if ( ent->splashRadius >= 40.0f ) {
+				vec3_t expPos;
+				VectorMA( trace->endpos, -4.0f, trace->plane.normal, expPos );
+				QCB_EmitExplosion( ent->s.weapon, (float)ent->splashRadius, expPos );
+			} else if ( trace->entityNum == ENTITYNUM_WORLD && (trace->surfaceFlags & SURF_METALSTEPS) ) {
+				QCB_EmitBreakBlock( ent->s.weapon, trace->endpos, trace->plane.normal );
+			}
+		}
 		if( G_RadiusDamage( trace->endpos, ent->parent, ent->splashDamage, ent->splashRadius, 
 			other, ent->splashMethodOfDeath ) ) {
 			if( !hitClient ) {

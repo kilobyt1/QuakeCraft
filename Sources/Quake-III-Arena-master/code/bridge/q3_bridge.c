@@ -757,3 +757,137 @@ void QCB_PublishCapturedFrame(void) {
     s_activeWriteSlot = -1;
 }
 
+/* ============================================================================
+ * Stage 4: Two-Way Combat, Proxy Entities & World Events
+ * ============================================================================ */
+
+void QCB_PushEventToMc(const QcbEvent *ev) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || !ev) {
+        return;
+    }
+    uint32_t w = shm->q3ToMcEvents.writeIdx;
+    uint32_t r = shm->q3ToMcEvents.readIdx;
+    if (w - r >= QCB_MAX_EVENTS) {
+        /* Ring full: advance readIdx to overwrite oldest */
+        shm->q3ToMcEvents.readIdx = w - QCB_MAX_EVENTS + 1U;
+    }
+    uint32_t slot = w & (QCB_MAX_EVENTS - 1U);
+    shm->q3ToMcEvents.events[slot] = *ev;
+    shm->q3ToMcEvents.events[slot].timestampNs = QCB_NowNs();
+    MemoryBarrier();
+    shm->q3ToMcEvents.writeIdx = w + 1U;
+    MemoryBarrier();
+}
+
+qboolean QCB_PopEventFromMc(QcbEvent *outEv) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || !outEv) {
+        return qfalse;
+    }
+    uint32_t r = shm->mcToQ3Events.readIdx;
+    uint32_t w = shm->mcToQ3Events.writeIdx;
+    if (r == w) {
+        return qfalse;
+    }
+    MemoryBarrier();
+    uint32_t slot = r & (QCB_MAX_EVENTS - 1U);
+    *outEv = shm->mcToQ3Events.events[slot];
+    MemoryBarrier();
+    shm->mcToQ3Events.readIdx = r + 1U;
+    return qtrue;
+}
+
+void QCB_EmitDamageEntity(
+    int mcEntityId,
+    int damageQ3,
+    int weaponId,
+    int isGib,
+    const float knockbackQ3[3],
+    const float hitPosQ3[3]
+) {
+    QcbEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type        = QCB_EV_DAMAGE_ENTITY;
+    ev.targetId    = mcEntityId;
+    ev.intParam1   = damageQ3;
+    ev.intParam2   = weaponId;
+    ev.intParam3   = isGib;
+    ev.floatParam1 = 0.0f;
+    if (knockbackQ3) {
+        ev.vecA[0] = knockbackQ3[0];
+        ev.vecA[1] = knockbackQ3[1];
+        ev.vecA[2] = knockbackQ3[2];
+    }
+    if (hitPosQ3) {
+        ev.vecB[0] = hitPosQ3[0];
+        ev.vecB[1] = hitPosQ3[1];
+        ev.vecB[2] = hitPosQ3[2];
+    }
+    QCB_PushEventToMc(&ev);
+}
+
+void QCB_EmitExplosion(int weaponId, float radiusQ3, const float posQ3[3]) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || !posQ3) {
+        return;
+    }
+    float anchorX = shm->voxels.anchorMcX;
+    float anchorY = shm->voxels.anchorMcY;
+    float anchorZ = shm->voxels.anchorMcZ;
+
+    int bx = (int)floorf(anchorX + posQ3[0] * QCB_BLOCKS_PER_UNIT);
+    int by = (int)floorf(anchorY + posQ3[2] * QCB_BLOCKS_PER_UNIT);
+    int bz = (int)floorf(anchorZ - posQ3[1] * QCB_BLOCKS_PER_UNIT);
+
+    QcbEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type        = QCB_EV_EXPLOSION;
+    ev.targetId    = weaponId;
+    ev.intParam1   = bx;
+    ev.intParam2   = by;
+    ev.intParam3   = bz;
+    ev.floatParam1 = radiusQ3;
+    ev.vecA[0]     = posQ3[0];
+    ev.vecA[1]     = posQ3[1];
+    ev.vecA[2]     = posQ3[2];
+    QCB_PushEventToMc(&ev);
+}
+
+void QCB_EmitBreakBlock(int weaponId, const float hitPosQ3[3], const float normalQ3[3]) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || !hitPosQ3) {
+        return;
+    }
+    float probe[3];
+    probe[0] = hitPosQ3[0];
+    probe[1] = hitPosQ3[1];
+    probe[2] = hitPosQ3[2];
+    if (normalQ3) {
+        /* Step 4 Q3 units inside the hit block along -normal */
+        probe[0] -= normalQ3[0] * 4.0f;
+        probe[1] -= normalQ3[1] * 4.0f;
+        probe[2] -= normalQ3[2] * 4.0f;
+    }
+
+    float anchorX = shm->voxels.anchorMcX;
+    float anchorY = shm->voxels.anchorMcY;
+    float anchorZ = shm->voxels.anchorMcZ;
+
+    int bx = (int)floorf(anchorX + probe[0] * QCB_BLOCKS_PER_UNIT);
+    int by = (int)floorf(anchorY + probe[2] * QCB_BLOCKS_PER_UNIT);
+    int bz = (int)floorf(anchorZ - probe[1] * QCB_BLOCKS_PER_UNIT);
+
+    QcbEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type        = QCB_EV_BREAK_BLOCK;
+    ev.targetId    = weaponId;
+    ev.intParam1   = bx;
+    ev.intParam2   = by;
+    ev.intParam3   = bz;
+    ev.vecA[0]     = probe[0];
+    ev.vecA[1]     = probe[1];
+    ev.vecA[2]     = probe[2];
+    QCB_PushEventToMc(&ev);
+}
+
