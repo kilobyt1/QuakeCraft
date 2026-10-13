@@ -67,10 +67,11 @@ extern "C" {
 #define QCB_POSE_FIRING         (1U << 6)
 
 /* Input flags */
-#define QCB_INPUT_ACTIVE        (1U << 0)
-#define QCB_INPUT_MC_GUI_OPEN   (1U << 1)
-#define QCB_INPUT_BUILD_MODE    (1U << 2)
-#define QCB_INPUT_THIRD_PERSON  (1U << 3)
+#define QCB_INPUT_ACTIVE         (1U << 0)
+#define QCB_INPUT_PASSTHROUGH_ON (1U << 1)
+#define QCB_INPUT_MC_GUI_OPEN    (1U << 1)
+#define QCB_INPUT_BUILD_MODE     (1U << 2)
+#define QCB_INPUT_THIRD_PERSON   (1U << 3)
 
 /* Quake 3 button bits (matches code/game/q_shared.h) */
 #define QCB_BUTTON_ATTACK       1U

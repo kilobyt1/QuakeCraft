@@ -26,6 +26,9 @@ qboolean QCB_IsActive(void);
 /* Returns qtrue if shared memory has a valid voxel grid (voxels.seq > 0) */
 qboolean QCB_HasVoxels(void);
 
+/* Returns qtrue if Minecraft window is active, unpaused, and in passthrough mode */
+qboolean QCB_ShouldPlayAudio(void);
+
 /* Update engine heartbeat and process per-frame bridge state */
 void QCB_Frame(void);
 

@@ -1153,6 +1153,8 @@ S_Update
 Called once each time through the main loop
 ============
 */
+#include "../bridge/q3_bridge.h"
+
 void S_Update( void ) {
 	int			i;
 	int			total;
@@ -1160,6 +1162,11 @@ void S_Update( void ) {
 
 	if ( !s_soundStarted || s_soundMuted ) {
 		Com_DPrintf ("not started or muted\n");
+		return;
+	}
+
+	if ( QCB_IsActive() && !QCB_ShouldPlayAudio() ) {
+		S_ClearSoundBuffer();
 		return;
 	}
 

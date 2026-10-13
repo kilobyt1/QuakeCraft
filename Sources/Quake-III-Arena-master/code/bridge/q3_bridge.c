@@ -293,6 +293,15 @@ void QCB_VoxelTrace(
         return;
     }
 
+    /* Wait briefly if Minecraft is in the middle of a 20us atomic voxel copy */
+    {
+        int spin = 0;
+        while ((shm->voxels.seq & 1U) != 0U && spin < 2000) {
+            YieldProcessor();
+            spin++;
+        }
+    }
+
     if (minsIn) {
         VectorCopy(minsIn, mins);
     } else {
@@ -890,4 +899,21 @@ void QCB_EmitBreakBlock(int weaponId, const float hitPosQ3[3], const float norma
     ev.vecA[2]     = probe[2];
     QCB_PushEventToMc(&ev);
 }
+
+qboolean QCB_ShouldPlayAudio(void) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || shm->header.magic != QCB_MAGIC) {
+        return qtrue;
+    }
+    if (!(shm->header.input.flags & QCB_INPUT_PASSTHROUGH_ON)) {
+        return qfalse;
+    }
+    uint64_t now = QCB_NowNs();
+    uint64_t hb  = shm->header.mcHeartbeatNs;
+    if (hb == 0 || (now > hb && (now - hb) > 500000000ULL)) {
+        return qfalse;
+    }
+    return qtrue;
+}
+
 

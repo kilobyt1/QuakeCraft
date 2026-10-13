@@ -281,7 +281,7 @@ public final class PlayerControllerSync {
 		final int weaponSelect = Math.max(1, Math.min(9, hotbarSlot + 1));
 
 		int flags = SharedMemoryBridge.FLAG_ACTIVE;
-		if (passthroughEnabled) {
+		if (passthroughEnabled && mc.isWindowActive() && !mc.isPaused()) {
 			flags |= SharedMemoryBridge.FLAG_PASSTHROUGH_ON;
 		}
 		if (mcInteractMode) {

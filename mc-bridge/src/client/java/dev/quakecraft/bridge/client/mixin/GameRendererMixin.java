@@ -29,10 +29,15 @@ public abstract class GameRendererMixin {
 		}
 	}
 
-	@Inject(method = "render3dHud", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "render3dHud", at = @At("HEAD"))
 	private void quakecraft$compositeQuakeFrameBeforeHandClear(final CallbackInfo ci) {
 		final Minecraft mc = Minecraft.getInstance();
 		QuakeCraftClient.COMPOSITOR.composite(mc, QuakeCraftClient.bridge);
+	}
+
+	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
+	private void quakecraft$suppressVanillaHandInQuakeMode(final CallbackInfo ci) {
+		final Minecraft mc = Minecraft.getInstance();
 		if (QuakeCraftClient.CONTROLLER.isPassthroughActive()
 			&& !QuakeCraftClient.CONTROLLER.isMcInteractMode()
 			&& mc.options.getCameraType().isFirstPerson()) {

@@ -1,9 +1,12 @@
 package dev.quakecraft.bridge.client;
 
 import java.lang.invoke.VarHandle;
+import java.lang.reflect.Field;
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.backend.opengl.GlStateManager;
 import com.mojang.renderpearl.backend.opengl.GlTexture;
+import com.mojang.renderpearl.frontend.FrontendCommandEncoder;
 import dev.quakecraft.bridge.QuakeCraftMod;
 import dev.quakecraft.bridge.SharedMemoryBridge;
 import net.minecraft.client.Minecraft;
@@ -103,6 +106,10 @@ public final class QuakeFrameCompositor {
 	private int progOverlay = 0;
 	private int uOverlayColor = -1;
 	private int uOverlayUvScale = -1;
+
+	private Object glEncoderBackend = null;
+	private Field lastPipelineField = null;
+	private Field lastProgramField = null;
 
 	private long lastUploadedFrameNumber = -1L;
 	private int cachedFrameWidth = 0;
@@ -210,6 +217,22 @@ public final class QuakeFrameCompositor {
 		GlStateManager._glUseProgram(0);
 		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, prevReadFbo);
 		GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, prevDrawFbo);
+		invalidateRenderPearlPipelineCache();
+	}
+
+	private void invalidateRenderPearlPipelineCache() {
+		if (glEncoderBackend == null) {
+			return;
+		}
+		try {
+			if (lastPipelineField != null) {
+				lastPipelineField.set(glEncoderBackend, null);
+			}
+			if (lastProgramField != null) {
+				lastProgramField.set(glEncoderBackend, null);
+			}
+		} catch (Throwable ignored) {
+		}
 	}
 
 	private boolean uploadLatestFrameIfNewer(final SharedMemoryBridge bridge) {
@@ -305,6 +328,20 @@ public final class QuakeFrameCompositor {
 			texWorldDepth = createTexture2D(GL13.GL_TEXTURE6, GL30.GL_R32F, GL11.GL_RED, GL11.GL_FLOAT, GL11.GL_NEAREST);
 			texOverlayRgba = createTexture2D(GL13.GL_TEXTURE7, GL11.GL_RGBA8, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, GL11.GL_LINEAR);
 			GlStateManager._activeTexture(GL13.GL_TEXTURE0);
+
+			try {
+				if (RenderSystem.getDevice().createCommandEncoder() instanceof FrontendCommandEncoder fe) {
+					glEncoderBackend = fe.backend();
+					if (glEncoderBackend != null) {
+						lastPipelineField = glEncoderBackend.getClass().getDeclaredField("lastPipeline");
+						lastPipelineField.setAccessible(true);
+						lastProgramField = glEncoderBackend.getClass().getDeclaredField("lastProgram");
+						lastProgramField.setAccessible(true);
+					}
+				}
+			} catch (Throwable t) {
+				QuakeCraftMod.LOG.warn("Could not reflect GlCommandEncoder.lastPipeline", t);
+			}
 
 			QuakeCraftMod.LOG.info("Initialized QuakeFrameCompositor OpenGL shaders and triple-buffer textures on units 5..7");
 			return true;
