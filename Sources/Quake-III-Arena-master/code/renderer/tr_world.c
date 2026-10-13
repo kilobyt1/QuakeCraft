@@ -20,6 +20,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
 #include "tr_local.h"
+#include "../bridge/q3_bridge.h"
 
 
 
@@ -648,6 +649,18 @@ void R_AddWorldSurfaces (void) {
 	}
 
 	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
+		return;
+	}
+
+	if ( QCB_HasVoxels() ) {
+		VectorSet( tr.viewParms.visBounds[0],
+			tr.viewParms.or.origin[0] - 8192.0f,
+			tr.viewParms.or.origin[1] - 8192.0f,
+			tr.viewParms.or.origin[2] - 8192.0f );
+		VectorSet( tr.viewParms.visBounds[1],
+			tr.viewParms.or.origin[0] + 8192.0f,
+			tr.viewParms.or.origin[1] + 8192.0f,
+			tr.viewParms.or.origin[2] + 8192.0f );
 		return;
 	}
 

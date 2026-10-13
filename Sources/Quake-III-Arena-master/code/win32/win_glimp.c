@@ -331,7 +331,7 @@ static void GLW_CreatePFD( PIXELFORMATDESCRIPTOR *pPFD, int colorbits, int depth
 		PFD_TYPE_RGBA,					// RGBA type
 		24,								// 24-bit color depth
 		0, 0, 0, 0, 0, 0,				// color bits ignored
-		0,								// no alpha buffer
+		8,								// 8-bit alpha buffer for QuakeCraft compositing
 		0,								// shift bit ignored
 		0,								// no accumulation buffer
 		0, 0, 0, 0, 					// accum bits ignored

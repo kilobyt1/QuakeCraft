@@ -49,6 +49,15 @@ void QCB_AckTeleport(uint32_t seq);
 /* High-resolution monotonic clock in nanoseconds */
 uint64_t QCB_NowNs(void);
 
+/* Frame capture & depth export (Stage 3) */
+void QCB_GetCaptureDimensions(int vidWidth, int vidHeight, int *outW, int *outH);
+void QCB_BeginFrameCapture(int width, int height, float zNear, float zFar, float fovX, float fovY, const float viewOrg[3], const float viewAngles[3]);
+uint8_t *QCB_GetActiveWorldRgbaBuffer(void);
+float   *QCB_GetActiveDepthBuffer(void);
+uint8_t *QCB_GetActiveOverlayRgbaBuffer(void);
+void QCB_ConvertWindowDepthToLinearQ3Units(int width, int height, float zNear, float zFar);
+void QCB_PublishCapturedFrame(void);
+
 #ifdef __cplusplus
 }
 #endif

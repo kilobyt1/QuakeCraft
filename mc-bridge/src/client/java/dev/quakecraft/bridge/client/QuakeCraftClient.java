@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 public final class QuakeCraftClient implements ClientModInitializer {
 	public static SharedMemoryBridge bridge;
 	public static final PlayerControllerSync CONTROLLER = new PlayerControllerSync();
+	public static final QuakeFrameCompositor COMPOSITOR = new QuakeFrameCompositor();
 
 	@Override
 	public void onInitializeClient() {

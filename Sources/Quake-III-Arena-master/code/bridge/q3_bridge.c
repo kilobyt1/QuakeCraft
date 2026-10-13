@@ -623,3 +623,137 @@ void QCB_PublishPlayerPose(const playerState_t *ps) {
     MemoryBarrier();
     shm->header.pose.seq = nextSeq + 1U;
 }
+
+/* ============================================================================
+ * Stage 3: Triple-Buffered Frame & Linear Depth Capture
+ * ============================================================================ */
+
+static int      s_activeWriteSlot = -1;
+static uint32_t s_frameCounter    = 0;
+
+void QCB_GetCaptureDimensions(int vidWidth, int vidHeight, int *outW, int *outH) {
+    int w = vidWidth;
+    int h = vidHeight;
+    if (w > QCB_MAX_FRAME_W) w = QCB_MAX_FRAME_W;
+    if (h > QCB_MAX_FRAME_H) h = QCB_MAX_FRAME_H;
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    *outW = w;
+    *outH = h;
+}
+
+void QCB_BeginFrameCapture(
+    int width,
+    int height,
+    float zNear,
+    float zFar,
+    float fovX,
+    float fovY,
+    const float viewOrg[3],
+    const float viewAngles[3]
+) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || width <= 0 || height <= 0) {
+        s_activeWriteSlot = -1;
+        return;
+    }
+
+    uint32_t latest = shm->header.latestFrameSlot;
+    uint32_t nextSlot = (latest + 1U) % QCB_FRAME_SLOTS;
+    s_activeWriteSlot = (int)nextSlot;
+
+    QcbFrameSlotDesc *desc = &shm->header.frames[nextSlot];
+    uint32_t seq = (desc->seq + 1U) | 1U;
+    desc->seq = seq;
+    MemoryBarrier();
+
+    uint32_t baseOff = QCB_OFFSET_FRAME_DATA + nextSlot * QCB_FRAME_SLOT_BYTES;
+    desc->flags       = 1U | 2U | 4U | 8U; /* valid | has_depth | has_hud | bottom_up */
+    desc->width       = (uint32_t)width;
+    desc->height      = (uint32_t)height;
+    desc->nearClipQ3  = zNear;
+    desc->farClipQ3   = zFar;
+    desc->fovX        = fovX;
+    desc->fovY        = fovY;
+    if (viewOrg) {
+        desc->renderQ3Origin[0] = viewOrg[0];
+        desc->renderQ3Origin[1] = viewOrg[1];
+        desc->renderQ3Origin[2] = viewOrg[2];
+    }
+    if (viewAngles) {
+        desc->renderQ3Angles[0] = viewAngles[0];
+        desc->renderQ3Angles[1] = viewAngles[1];
+        desc->renderQ3Angles[2] = viewAngles[2];
+    }
+    desc->rgbaOffset  = baseOff;
+    desc->depthOffset = baseOff + QCB_FRAME_RGBA_BYTES;
+    desc->hudOffset   = baseOff + QCB_FRAME_RGBA_BYTES + QCB_FRAME_DEPTH_BYTES;
+}
+
+uint8_t *QCB_GetActiveWorldRgbaBuffer(void) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || s_activeWriteSlot < 0 || s_activeWriteSlot >= QCB_FRAME_SLOTS) {
+        return NULL;
+    }
+    return (uint8_t *)shm + shm->header.frames[s_activeWriteSlot].rgbaOffset;
+}
+
+float *QCB_GetActiveDepthBuffer(void) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || s_activeWriteSlot < 0 || s_activeWriteSlot >= QCB_FRAME_SLOTS) {
+        return NULL;
+    }
+    return (float *)((uint8_t *)shm + shm->header.frames[s_activeWriteSlot].depthOffset);
+}
+
+uint8_t *QCB_GetActiveOverlayRgbaBuffer(void) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || s_activeWriteSlot < 0 || s_activeWriteSlot >= QCB_FRAME_SLOTS) {
+        return NULL;
+    }
+    return (uint8_t *)shm + shm->header.frames[s_activeWriteSlot].hudOffset;
+}
+
+void QCB_ConvertWindowDepthToLinearQ3Units(int width, int height, float zNear, float zFar) {
+    float *depthBuf = QCB_GetActiveDepthBuffer();
+    if (!depthBuf || width <= 0 || height <= 0) {
+        return;
+    }
+    if (zNear <= 0.01f) zNear = 4.0f;
+    if (zFar <= zNear + 1.0f) zFar = 4096.0f;
+
+    const float twoNearFar = 2.0f * zNear * zFar;
+    const float sumNearFar = zFar + zNear;
+    const float diffNearFar = zFar - zNear;
+    const int totalPixels = width * height;
+    int i;
+
+    for (i = 0; i < totalPixels; i++) {
+        float zw = depthBuf[i];
+        if (zw >= 0.99999f) {
+            depthBuf[i] = 0.0f; /* Sky / background sentinel (no Q3 geometry) */
+        } else {
+            float ndcZ = 2.0f * zw - 1.0f;
+            float denom = sumNearFar - ndcZ * diffNearFar;
+            depthBuf[i] = (denom > 0.0001f) ? (twoNearFar / denom) : 0.0f;
+        }
+    }
+}
+
+void QCB_PublishCapturedFrame(void) {
+    QcbSharedMemory *shm = QCB_GetShm();
+    if (!shm || s_activeWriteSlot < 0 || s_activeWriteSlot >= QCB_FRAME_SLOTS) {
+        return;
+    }
+    QcbFrameSlotDesc *desc = &shm->header.frames[s_activeWriteSlot];
+    s_frameCounter++;
+    desc->frameNumber = s_frameCounter;
+    desc->timestampNs = QCB_NowNs();
+    MemoryBarrier();
+    desc->seq = (desc->seq + 1U) & ~1U;
+    shm->header.latestFrameSlot = (uint32_t)s_activeWriteSlot;
+    shm->header.q3HeartbeatNs = desc->timestampNs;
+    MemoryBarrier();
+    s_activeWriteSlot = -1;
+}
+

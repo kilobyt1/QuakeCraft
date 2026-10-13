@@ -20,9 +20,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
 #include "tr_local.h"
+#include "../bridge/q3_bridge.h"
 
 backEndData_t	*backEndData[SMP_FRAMES];
 backEndState_t	backEnd;
+static qboolean	s_qcbWorldPassCaptured = qfalse;
 
 
 static float	s_flipMatrix[16] = {
@@ -459,7 +461,12 @@ void RB_BeginDrawingView (void) {
 	{
 		clearBits |= GL_STENCIL_BUFFER_BIT;
 	}
-	if ( r_fastsky->integer && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) )
+	if ( QCB_IsActive() && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && !backEnd.viewParms.isPortal )
+	{
+		clearBits |= GL_COLOR_BUFFER_BIT;
+		qglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+	}
+	else if ( r_fastsky->integer && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) )
 	{
 		clearBits |= GL_COLOR_BUFFER_BIT;	// FIXME: only if sky shaders have been used
 #ifdef _DEBUG
@@ -542,7 +549,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// clear the z buffer, set the modelview, etc
 	RB_BeginDrawingView ();
 
-	// draw everything
+	qboolean isPrimaryWorldView = ( QCB_IsActive() && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && !backEnd.viewParms.isPortal ) ? qtrue : qfalse;
+	qboolean hasDepthHackSurfs = qfalse;
+
+	// draw everything (pass 1: world & 3D entities without RF_DEPTHHACK when isPrimaryWorldView)
 	oldEntityNum = -1;
 	backEnd.currentEntity = &tr.worldEntity;
 	oldShader = NULL;
@@ -555,13 +565,17 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	backEnd.pc.c_surfaces += numDrawSurfs;
 
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++) {
+		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
+		if ( isPrimaryWorldView && entityNum != ENTITYNUM_WORLD && ( backEnd.refdef.entities[entityNum].e.renderfx & RF_DEPTHHACK ) ) {
+			hasDepthHackSurfs = qtrue;
+			continue;
+		}
 		if ( drawSurf->sort == oldSort ) {
 			// fast path, same as previous sort
 			rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
 			continue;
 		}
 		oldSort = drawSurf->sort;
-		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
 
 		//
 		// change the tess parameters if needed
@@ -570,15 +584,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		if (shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted 
 			|| ( entityNum != oldEntityNum && !shader->entityMergable ) ) {
 			if (oldShader != NULL) {
-#ifdef __MACOS__	// crutch up the mac's limited buffer queue size
-				int		t;
-
-				t = ri.Milliseconds();
-				if ( t > macEventTime ) {
-					macEventTime = t + MAC_EVENT_PUMP_MSEC;
-					Sys_PumpEvents();
-				}
-#endif
 				RB_EndSurface();
 			}
 			RB_BeginSurface( shader, fogNum );
@@ -596,37 +601,27 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			if ( entityNum != ENTITYNUM_WORLD ) {
 				backEnd.currentEntity = &backEnd.refdef.entities[entityNum];
 				backEnd.refdef.floatTime = originalTime - backEnd.currentEntity->e.shaderTime;
-				// we have to reset the shaderTime as well otherwise image animations start
-				// from the wrong frame
 				tess.shaderTime = backEnd.refdef.floatTime - tess.shader->timeOffset;
 
-				// set up the transformation matrix
 				R_RotateForEntity( backEnd.currentEntity, &backEnd.viewParms, &backEnd.or );
 
-				// set up the dynamic lighting if needed
 				if ( backEnd.currentEntity->needDlights ) {
 					R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.or );
 				}
 
 				if ( backEnd.currentEntity->e.renderfx & RF_DEPTHHACK ) {
-					// hack the depth range to prevent view model from poking into walls
 					depthRange = qtrue;
 				}
 			} else {
 				backEnd.currentEntity = &tr.worldEntity;
 				backEnd.refdef.floatTime = originalTime;
 				backEnd.or = backEnd.viewParms.world;
-				// we have to reset the shaderTime as well otherwise image animations on
-				// the world (like water) continue with the wrong frame
 				tess.shaderTime = backEnd.refdef.floatTime - tess.shader->timeOffset;
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.or );
 			}
 
 			qglLoadMatrixf( backEnd.or.modelMatrix );
 
-			//
-			// change depthrange if needed
-			//
 			if ( oldDepthRange != depthRange ) {
 				if ( depthRange ) {
 					qglDepthRange (0, 0.3);
@@ -639,7 +634,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			oldEntityNum = entityNum;
 		}
 
-		// add the triangles for this surface
 		rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
 	}
 
@@ -656,18 +650,104 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		qglDepthRange (0, 1);
 	}
 
-#if 0
-	RB_DrawSun();
-#endif
 	// darken down any stencil shadows
 	RB_ShadowFinish();		
 
 	// add light flares on lights that aren't obscured
 	RB_RenderFlares();
 
-#ifdef __MACOS__
-	Sys_PumpEvents();		// crutch up the mac's limited buffer queue size
-#endif
+	// Capture 3D World RGBA8 + linear R32F depth before drawing RF_DEPTHHACK weapon or 2D HUD
+	if ( isPrimaryWorldView ) {
+		int capW, capH;
+		QCB_GetCaptureDimensions( glConfig.vidWidth, glConfig.vidHeight, &capW, &capH );
+		QCB_BeginFrameCapture(
+			capW,
+			capH,
+			r_znear->value,
+			backEnd.viewParms.zFar,
+			backEnd.viewParms.fovX,
+			backEnd.viewParms.fovY,
+			backEnd.viewParms.or.origin,
+			NULL
+		);
+		uint8_t *worldRgba = QCB_GetActiveWorldRgbaBuffer();
+		float   *depthBuf  = QCB_GetActiveDepthBuffer();
+		if ( worldRgba && depthBuf ) {
+			qglPixelStorei( GL_PACK_ALIGNMENT, 1 );
+			qglReadPixels( 0, 0, capW, capH, GL_RGBA, GL_UNSIGNED_BYTE, worldRgba );
+			qglReadPixels( 0, 0, capW, capH, GL_DEPTH_COMPONENT, GL_FLOAT, depthBuf );
+			QCB_ConvertWindowDepthToLinearQ3Units( capW, capH, r_znear->value, backEnd.viewParms.zFar );
+			s_qcbWorldPassCaptured = qtrue;
+		}
+
+		// Clear color buffer to transparent black so the subsequent pass (RF_DEPTHHACK weapon + 2D HUD)
+		// is captured cleanly into the overlay layer
+		qglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+		qglClear( GL_COLOR_BUFFER_BIT );
+
+		if ( hasDepthHackSurfs ) {
+			oldEntityNum = -1;
+			backEnd.currentEntity = &tr.worldEntity;
+			oldShader = NULL;
+			oldFogNum = -1;
+			oldDepthRange = qfalse;
+			oldDlighted = qfalse;
+			oldSort = -1;
+			depthRange = qfalse;
+
+			for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++) {
+				R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
+				if ( entityNum == ENTITYNUM_WORLD || !( backEnd.refdef.entities[entityNum].e.renderfx & RF_DEPTHHACK ) ) {
+					continue;
+				}
+				if ( drawSurf->sort == oldSort ) {
+					rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+					continue;
+				}
+				oldSort = drawSurf->sort;
+
+				if (shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted 
+					|| ( entityNum != oldEntityNum && !shader->entityMergable ) ) {
+					if (oldShader != NULL) {
+						RB_EndSurface();
+					}
+					RB_BeginSurface( shader, fogNum );
+					oldShader = shader;
+					oldFogNum = fogNum;
+					oldDlighted = dlighted;
+				}
+
+				if ( entityNum != oldEntityNum ) {
+					backEnd.currentEntity = &backEnd.refdef.entities[entityNum];
+					backEnd.refdef.floatTime = originalTime - backEnd.currentEntity->e.shaderTime;
+					tess.shaderTime = backEnd.refdef.floatTime - tess.shader->timeOffset;
+
+					R_RotateForEntity( backEnd.currentEntity, &backEnd.viewParms, &backEnd.or );
+					if ( backEnd.currentEntity->needDlights ) {
+						R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.or );
+					}
+					depthRange = qtrue;
+					qglLoadMatrixf( backEnd.or.modelMatrix );
+					if ( oldDepthRange != depthRange ) {
+						qglDepthRange (0, 0.3);
+						oldDepthRange = depthRange;
+					}
+					oldEntityNum = entityNum;
+				}
+
+				rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+			}
+
+			backEnd.refdef.floatTime = originalTime;
+			if (oldShader != NULL) {
+				RB_EndSurface();
+			}
+			qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
+			if ( depthRange ) {
+				qglDepthRange (0, 1);
+			}
+		}
+	}
 }
 
 
@@ -1053,6 +1133,18 @@ const void	*RB_SwapBuffers( const void *data ) {
 
 	if ( !glState.finishCalled ) {
 		qglFinish();
+	}
+
+	if ( s_qcbWorldPassCaptured ) {
+		int capW, capH;
+		uint8_t *overlayRgba = QCB_GetActiveOverlayRgbaBuffer();
+		QCB_GetCaptureDimensions( glConfig.vidWidth, glConfig.vidHeight, &capW, &capH );
+		if ( overlayRgba ) {
+			qglPixelStorei( GL_PACK_ALIGNMENT, 1 );
+			qglReadPixels( 0, 0, capW, capH, GL_RGBA, GL_UNSIGNED_BYTE, overlayRgba );
+		}
+		QCB_PublishCapturedFrame();
+		s_qcbWorldPassCaptured = qfalse;
 	}
 
 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );

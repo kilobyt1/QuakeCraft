@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // cg_view.c -- setup all the parameters (position, angle, etc)
 // for a 3D rendering
 #include "cg_local.h"
+#include "../bridge/q3_bridge.h"
 
 
 /*
@@ -525,6 +526,17 @@ static int CG_CalcFov( void ) {
 	fov_y = atan2( cg.refdef.height, x );
 	fov_y = fov_y * 360 / M_PI;
 
+	if ( QCB_IsActive() ) {
+		QcbSharedMemory *shm = QCB_GetShm();
+		if ( shm && shm->header.input.fovY >= 20.0f && shm->header.input.fovY <= 150.0f ) {
+			float aspect = (shm->header.input.viewportHeight > 0 && shm->header.input.viewportWidth > 0)
+				? ((float)shm->header.input.viewportWidth / (float)shm->header.input.viewportHeight)
+				: ((float)cg.refdef.width / (float)cg.refdef.height);
+			fov_y = shm->header.input.fovY;
+			fov_x = atan( tan( fov_y * M_PI / 360.0f ) * aspect ) * 360.0f / M_PI;
+		}
+	}
+
 	// warp if underwater
 	contents = CG_PointContents( cg.refdef.vieworg, -1 );
 	if ( contents & ( CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA ) ){
@@ -802,6 +814,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// decide on third person view
 	cg.renderingThirdPerson = cg_thirdPerson.integer || (cg.snap->ps.stats[STAT_HEALTH] <= 0);
+	if ( QCB_IsActive() ) {
+		QcbSharedMemory *shm = QCB_GetShm();
+		if ( shm && (shm->header.input.flags & QCB_INPUT_THIRD_PERSON) ) {
+			cg.renderingThirdPerson = qtrue;
+		}
+	}
 
 	// build cg.refdef
 	inwater = CG_CalcViewValues();
