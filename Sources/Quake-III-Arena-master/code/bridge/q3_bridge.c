@@ -293,9 +293,31 @@ void QCB_VoxelTrace(
         return;
     }
 
-    /* Wait briefly if Minecraft is in the middle of a voxel copy */
-    uint32_t vseq1 = 0, vseq2 = 0;
-    {
+    if (minsIn) {
+        VectorCopy(minsIn, mins);
+    } else {
+        VectorClear(mins);
+    }
+    if (maxsIn) {
+        VectorCopy(maxsIn, maxs);
+    } else {
+        VectorClear(maxs);
+    }
+
+    for (i = 0; i < 3; i++) {
+        if (start[i] < end[i]) {
+            traceMin[i] = start[i] + mins[i];
+            traceMax[i] = end[i] + maxs[i];
+        } else {
+            traceMin[i] = end[i] + mins[i];
+            traceMax[i] = start[i] + maxs[i];
+        }
+    }
+
+    /* Retry up to 4 times if Minecraft updates the voxel seqlock mid-sweep */
+    int attempt;
+    for (attempt = 0; attempt < 4; attempt++) {
+        uint32_t vseq1 = 0, vseq2 = 0;
         int spin = 0;
         while (spin < 10000) {
             vseq1 = shm->voxels.seq;
@@ -306,157 +328,147 @@ void QCB_VoxelTrace(
             spin++;
         }
         if ((vseq1 & 1U) != 0U) {
-            return;
+            continue;
         }
-    }
 
-    if (minsIn) {
-        VectorCopy(minsIn, mins);
-    } else {
-        memset(mins, 0, sizeof(mins));
-    }
-    if (maxsIn) {
-        VectorCopy(maxsIn, maxs);
-    } else {
-        memset(maxs, 0, sizeof(maxs));
-    }
+        memset(results, 0, sizeof(*results));
+        results->fraction = 1.0f;
+        VectorCopy(end, results->endpos);
 
-    for (i = 0; i < 3; i++) {
-        if (start[i] < end[i]) {
-            traceMin[i] = start[i] + mins[i] - 1.0f;
-            traceMax[i] = end[i] + maxs[i] + 1.0f;
-        } else {
-            traceMin[i] = end[i] + mins[i] - 1.0f;
-            traceMax[i] = start[i] + maxs[i] + 1.0f;
-        }
-    }
+        float anchorX = shm->voxels.anchorMcX;
+        float anchorY = shm->voxels.anchorMcY;
+        float anchorZ = shm->voxels.anchorMcZ;
+        int origX = shm->voxels.originBlockX;
+        int origY = shm->voxels.originBlockY;
+        int origZ = shm->voxels.originBlockZ;
 
-    float anchorX = shm->voxels.anchorMcX;
-    float anchorY = shm->voxels.anchorMcY;
-    float anchorZ = shm->voxels.anchorMcZ;
-    int origX = shm->voxels.originBlockX;
-    int origY = shm->voxels.originBlockY;
-    int origZ = shm->voxels.originBlockZ;
+        /* Convert Q3 trace bounds to MC block index bounds:
+         * MC_X = anchorX + Q3_X / 32
+         * MC_Y = anchorY + Q3_Z / 32
+         * MC_Z = anchorZ - Q3_Y / 32
+         */
+        int minBx = (int)floorf(anchorX + traceMin[0] * QCB_BLOCKS_PER_UNIT);
+        int maxBx = (int)floorf(anchorX + traceMax[0] * QCB_BLOCKS_PER_UNIT);
+        int minBy = (int)floorf(anchorY + traceMin[2] * QCB_BLOCKS_PER_UNIT);
+        int maxBy = (int)floorf(anchorY + traceMax[2] * QCB_BLOCKS_PER_UNIT);
+        int minBz = (int)floorf(anchorZ - traceMax[1] * QCB_BLOCKS_PER_UNIT);
+        int maxBz = (int)floorf(anchorZ - traceMin[1] * QCB_BLOCKS_PER_UNIT);
 
-    /* Convert Q3 trace bounds to MC block index bounds:
-     * MC_X = anchorX + Q3_X / 32
-     * MC_Y = anchorY + Q3_Z / 32
-     * MC_Z = anchorZ - Q3_Y / 32
-     */
-    int minBx = (int)floorf(anchorX + traceMin[0] * QCB_BLOCKS_PER_UNIT);
-    int maxBx = (int)floorf(anchorX + traceMax[0] * QCB_BLOCKS_PER_UNIT);
-    int minBy = (int)floorf(anchorY + traceMin[2] * QCB_BLOCKS_PER_UNIT);
-    int maxBy = (int)floorf(anchorY + traceMax[2] * QCB_BLOCKS_PER_UNIT);
-    int minBz = (int)floorf(anchorZ - traceMax[1] * QCB_BLOCKS_PER_UNIT);
-    int maxBz = (int)floorf(anchorZ - traceMin[1] * QCB_BLOCKS_PER_UNIT);
+        int dx0 = minBx - origX; if (dx0 < 0) dx0 = 0;
+        int dx1 = maxBx - origX; if (dx1 >= QCB_VOXEL_DIM) dx1 = QCB_VOXEL_DIM - 1;
+        int dy0 = minBy - origY; if (dy0 < 0) dy0 = 0;
+        int dy1 = maxBy - origY; if (dy1 >= QCB_VOXEL_DIM) dy1 = QCB_VOXEL_DIM - 1;
+        int dz0 = minBz - origZ; if (dz0 < 0) dz0 = 0;
+        int dz1 = maxBz - origZ; if (dz1 >= QCB_VOXEL_DIM) dz1 = QCB_VOXEL_DIM - 1;
 
-    int dx0 = minBx - origX; if (dx0 < 0) dx0 = 0;
-    int dx1 = maxBx - origX; if (dx1 >= QCB_VOXEL_DIM) dx1 = QCB_VOXEL_DIM - 1;
-    int dy0 = minBy - origY; if (dy0 < 0) dy0 = 0;
-    int dy1 = maxBy - origY; if (dy1 >= QCB_VOXEL_DIM) dy1 = QCB_VOXEL_DIM - 1;
-    int dz0 = minBz - origZ; if (dz0 < 0) dz0 = 0;
-    int dz1 = maxBz - origZ; if (dz1 >= QCB_VOXEL_DIM) dz1 = QCB_VOXEL_DIM - 1;
+        qboolean isPositionTest = (start[0] == end[0] && start[1] == end[1] && start[2] == end[2]) ? qtrue : qfalse;
 
-    qboolean isPositionTest = (start[0] == end[0] && start[1] == end[1] && start[2] == end[2]) ? qtrue : qfalse;
+        int dy, dz, dx;
+        qboolean abortedMidSweep = qfalse;
+        for (dy = dy0; dy <= dy1 && !abortedMidSweep; dy++) {
+            int by = origY + dy;
+            float bminZ = ((float)by - anchorY) * QCB_UNITS_PER_BLOCK;
+            float bmaxZ = bminZ + QCB_UNITS_PER_BLOCK;
 
-    int dy, dz, dx;
-    for (dy = dy0; dy <= dy1; dy++) {
-        int by = origY + dy;
-        float bminZ = ((float)by - anchorY) * QCB_UNITS_PER_BLOCK;
-        float bmaxZ = bminZ + QCB_UNITS_PER_BLOCK;
+            for (dz = dz0; dz <= dz1 && !abortedMidSweep; dz++) {
+                int bz = origZ + dz;
+                float bminY = -((float)(bz + 1) - anchorZ) * QCB_UNITS_PER_BLOCK;
+                float bmaxY = bminY + QCB_UNITS_PER_BLOCK;
 
-        for (dz = dz0; dz <= dz1; dz++) {
-            int bz = origZ + dz;
-            float bminY = -((float)(bz + 1) - anchorZ) * QCB_UNITS_PER_BLOCK;
-            float bmaxY = bminY + QCB_UNITS_PER_BLOCK;
-
-            for (dx = dx0; dx <= dx1; dx++) {
-                uint8_t rawCell = shm->voxels.cells[dy * 4096 + dz * 64 + dx];
-                if (rawCell == QCB_VOXEL_AIR) {
-                    continue;
-                }
-
-                uint8_t shape = rawCell & 0x0FU;
-                int boxContents = CONTENTS_SOLID;
-                int boxSurfFlags = 0;
-
-                if ((rawCell & 0x10U) || shape == QCB_VOXEL_ICE) {
-                    boxSurfFlags |= SURF_SLICK;
-                }
-                if (rawCell & 0x80U) {
-                    boxSurfFlags |= SURF_METALSTEPS;
-                }
-
-                if (shape == QCB_VOXEL_WATER) {
-                    boxContents = CONTENTS_WATER;
-                } else if (shape == QCB_VOXEL_LAVA) {
-                    boxContents = CONTENTS_LAVA;
-                }
-
-                if (!(brushmask & boxContents)) {
-                    continue;
-                }
-
-                int bx = origX + dx;
-                float bminX = ((float)bx - anchorX) * QCB_UNITS_PER_BLOCK;
-                float bmaxX = bminX + QCB_UNITS_PER_BLOCK;
-
-                vec3_t boxMin = { bminX, bminY, bminZ };
-                vec3_t boxMax = { bmaxX, bmaxY, bmaxZ };
-
-                if (shape == QCB_VOXEL_SLAB_BOTTOM) {
-                    boxMax[2] = bminZ + 16.0f;
-                    QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, boxMax, boxContents, boxSurfFlags, isPositionTest);
-                } else if (shape == QCB_VOXEL_SLAB_TOP) {
-                    boxMin[2] = bminZ + 16.0f;
-                    QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, boxMax, boxContents, boxSurfFlags, isPositionTest);
-                } else if (shape >= QCB_VOXEL_STAIR_EAST && shape <= QCB_VOXEL_STAIR_NORTH) {
-                    /* Bottom slab half */
-                    vec3_t botMax = { bmaxX, bmaxY, bminZ + 16.0f };
-                    QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, botMax, boxContents, boxSurfFlags, isPositionTest);
-                    /* Upper step half */
-                    vec3_t topMin = { bminX, bminY, bminZ + 16.0f };
-                    vec3_t topMax = { bmaxX, bmaxY, bmaxZ };
-                    if (shape == QCB_VOXEL_STAIR_EAST) {
-                        topMin[0] = bminX + 16.0f;
-                    } else if (shape == QCB_VOXEL_STAIR_WEST) {
-                        topMax[0] = bminX + 16.0f;
-                    } else if (shape == QCB_VOXEL_STAIR_NORTH) {
-                        /* MC North is -Z, which is +Y in Q3 */
-                        topMin[1] = bminY + 16.0f;
-                    } else if (shape == QCB_VOXEL_STAIR_SOUTH) {
-                        /* MC South is +Z, which is -Y in Q3 */
-                        topMax[1] = bminY + 16.0f;
+                for (dx = dx0; dx <= dx1; dx++) {
+                    uint8_t rawCell = shm->voxels.cells[dy * 4096 + dz * 64 + dx];
+                    if (rawCell == QCB_VOXEL_AIR) {
+                        continue;
                     }
-                    QCB_ClipBoxToBox(results, start, end, mins, maxs, topMin, topMax, boxContents, boxSurfFlags, isPositionTest);
-                } else {
-                    QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, boxMax, boxContents, boxSurfFlags, isPositionTest);
-                }
 
-                if (results->allsolid) {
-                    VectorCopy(start, results->endpos);
-                    return;
+                    uint8_t shape = rawCell & 0x0FU;
+                    int boxContents = CONTENTS_SOLID;
+                    int boxSurfFlags = 0;
+
+                    if ((rawCell & 0x10U) || shape == QCB_VOXEL_ICE) {
+                        boxSurfFlags |= SURF_SLICK;
+                    }
+                    if (rawCell & 0x80U) {
+                        boxSurfFlags |= SURF_METALSTEPS;
+                    }
+
+                    if (shape == QCB_VOXEL_WATER) {
+                        boxContents = CONTENTS_WATER;
+                    } else if (shape == QCB_VOXEL_LAVA) {
+                        boxContents = CONTENTS_LAVA;
+                    }
+
+                    if (!(brushmask & boxContents)) {
+                        continue;
+                    }
+
+                    int bx = origX + dx;
+                    float bminX = ((float)bx - anchorX) * QCB_UNITS_PER_BLOCK;
+                    float bmaxX = bminX + QCB_UNITS_PER_BLOCK;
+
+                    vec3_t boxMin = { bminX, bminY, bminZ };
+                    vec3_t boxMax = { bmaxX, bmaxY, bmaxZ };
+
+                    if (shape == QCB_VOXEL_SLAB_BOTTOM) {
+                        boxMax[2] = bminZ + 16.0f;
+                        QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, boxMax, boxContents, boxSurfFlags, isPositionTest);
+                    } else if (shape == QCB_VOXEL_SLAB_TOP) {
+                        boxMin[2] = bminZ + 16.0f;
+                        QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, boxMax, boxContents, boxSurfFlags, isPositionTest);
+                    } else if (shape >= QCB_VOXEL_STAIR_EAST && shape <= QCB_VOXEL_STAIR_NORTH) {
+                        /* Bottom slab half */
+                        vec3_t botMax = { bmaxX, bmaxY, bminZ + 16.0f };
+                        QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, botMax, boxContents, boxSurfFlags, isPositionTest);
+                        /* Upper step half */
+                        vec3_t topMin = { bminX, bminY, bminZ + 16.0f };
+                        vec3_t topMax = { bmaxX, bmaxY, bmaxZ };
+                        if (shape == QCB_VOXEL_STAIR_EAST) {
+                            topMin[0] = bminX + 16.0f;
+                        } else if (shape == QCB_VOXEL_STAIR_WEST) {
+                            topMax[0] = bminX + 16.0f;
+                        } else if (shape == QCB_VOXEL_STAIR_NORTH) {
+                            /* MC North is -Z, which is +Y in Q3 */
+                            topMin[1] = bminY + 16.0f;
+                        } else if (shape == QCB_VOXEL_STAIR_SOUTH) {
+                            /* MC South is +Z, which is -Y in Q3 */
+                            topMax[1] = bminY + 16.0f;
+                        }
+                        QCB_ClipBoxToBox(results, start, end, mins, maxs, topMin, topMax, boxContents, boxSurfFlags, isPositionTest);
+                    } else {
+                        QCB_ClipBoxToBox(results, start, end, mins, maxs, boxMin, boxMax, boxContents, boxSurfFlags, isPositionTest);
+                    }
+
+                    if (results->allsolid) {
+                        VectorCopy(start, results->endpos);
+                        MemoryBarrier();
+                        vseq2 = shm->voxels.seq;
+                        if (vseq1 == vseq2) {
+                            return;
+                        }
+                        abortedMidSweep = qtrue;
+                        break;
+                    }
                 }
             }
         }
-    }
 
-    if (results->fraction == 1.0f) {
-        VectorCopy(end, results->endpos);
-    } else {
-        for (i = 0; i < 3; i++) {
-            results->endpos[i] = start[i] + results->fraction * (end[i] - start[i]);
+        if (abortedMidSweep) {
+            continue;
         }
-    }
 
-    MemoryBarrier();
-    vseq2 = shm->voxels.seq;
-    if (vseq1 != vseq2) {
-        /* Discard torn trace if Minecraft updated voxel grid mid-sweep */
-        results->fraction = 1.0f;
-        results->startsolid = qfalse;
-        results->allsolid = qfalse;
-        VectorCopy(end, results->endpos);
+        if (results->fraction == 1.0f) {
+            VectorCopy(end, results->endpos);
+        } else {
+            for (i = 0; i < 3; i++) {
+                results->endpos[i] = start[i] + results->fraction * (end[i] - start[i]);
+            }
+        }
+
+        MemoryBarrier();
+        vseq2 = shm->voxels.seq;
+        if (vseq1 == vseq2) {
+            return;
+        }
     }
 }
 

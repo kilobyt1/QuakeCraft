@@ -29,7 +29,7 @@ public final class PlayerControllerSync {
 	private int inputSeq = 0;
 	private int teleportSeq = 0;
 
-	private boolean passthroughEnabled = true;
+	private volatile boolean passthroughEnabled = true;
 	private boolean mcInteractMode = false;
 	private boolean prevF6Down = false;
 	private boolean prevF7Down = false;
@@ -230,14 +230,17 @@ public final class PlayerControllerSync {
 		publishInputFrame(mc, bridge, player);
 
 		// Read latest authoritative Quake 3 pose and sync ServerPlayer on tick
-		if (passthroughEnabled && readAndApplyQ3Pose(mc, bridge, player, true)) {
-			// Check if Minecraft teleported the player externally (e.g. /tp command or dimension change)
-			final double dx = player.getX() - latestMcFeetX;
-			final double dy = player.getY() - latestMcFeetY;
-			final double dz = player.getZ() - latestMcFeetZ;
-			if (dx * dx + dy * dy + dz * dz > 64.0) {
-				issueTeleportToCurrentMcPos(bridge, player);
+		if (passthroughEnabled) {
+			if (hasValidPose) {
+				// Check if Minecraft teleported the player externally (e.g. /tp command or dimension change)
+				final double dx = player.getX() - latestMcFeetX;
+				final double dy = player.getY() - latestMcFeetY;
+				final double dz = player.getZ() - latestMcFeetZ;
+				if (dx * dx + dy * dy + dz * dz > 400.0) {
+					issueTeleportToCurrentMcPos(bridge, player);
+				}
 			}
+			readAndApplyQ3Pose(mc, bridge, player, true);
 		}
 	}
 
@@ -496,17 +499,17 @@ public final class PlayerControllerSync {
 		hasValidPose = true;
 		updateRenderPose();
 
-		// Synchronize LocalPlayer position & velocity (blocks/tick = Q3 units/sec / (32 * 20))
-		player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
+		// Synchronize LocalPlayer position & velocity only on tick (blocks/tick = Q3 units/sec / (32 * 20))
 		if (syncServer) {
+			player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
 			player.xo = latestMcFeetX;
 			player.yo = latestMcFeetY;
 			player.zo = latestMcFeetZ;
+			player.setOnGround(onGround && !inWater);
+			final double scaleVel = SharedMemoryBridge.SCALE_MC_PER_Q3 / 20.0;
+			player.setDeltaMovement(vx * scaleVel, vz * scaleVel, -vy * scaleVel);
+			player.resetFallDistance();
 		}
-		player.setOnGround(onGround && !inWater);
-		final double scaleVel = SharedMemoryBridge.SCALE_MC_PER_Q3 / 20.0;
-		player.setDeltaMovement(vx * scaleVel, vz * scaleVel, -vy * scaleVel);
-		player.resetFallDistance();
 
 		// Synchronize IntegratedServer ServerPlayer once per tick with noPhysics + resetPosition()
 		// so ServerGamePacketListenerImpl never rubberbands position or camera angles in Survival mode!

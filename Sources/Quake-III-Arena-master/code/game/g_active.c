@@ -946,7 +946,8 @@ void ClientThink_real( gentity_t *ent ) {
 	pm.pmove_msec = pmove_msec.integer;
 
 	if ( QCB_IsActive() && QCB_HasVoxels() && !(ent->r.svFlags & SVF_BOT) &&
-	     client->ps.pm_type == PM_NORMAL && client->ps.groundEntityNum == ENTITYNUM_NONE ) {
+	     client->ps.pm_type == PM_NORMAL && client->ps.groundEntityNum == ENTITYNUM_NONE &&
+	     VectorLengthSquared( client->ps.velocity ) < 1.0f ) {
 		trace_t unstuckTr;
 		vec3_t pmins = { -14.0f, -14.0f, -22.0f };
 		vec3_t pmaxs = {  14.0f,  14.0f,  30.0f };

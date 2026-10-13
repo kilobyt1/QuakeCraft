@@ -8,7 +8,8 @@
 		"EntityRenderDispatcherMixin",
 		"GameRendererMixin",
 		"LocalPlayerMixin",
-		"MinecraftMixin"
+		"MinecraftMixin",
+		"PlayerMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
