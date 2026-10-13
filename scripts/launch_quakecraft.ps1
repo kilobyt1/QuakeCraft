@@ -41,11 +41,13 @@ if ($LaunchQuake) {
         "+set", "sv_pure", "0",
         "+set", "r_fullscreen", "0",
         "+set", "r_mode", "-1",
-        "+set", "r_customwidth", "1280",
-        "+set", "r_customheight", "720",
+        "+set", "r_customwidth", "854",
+        "+set", "r_customheight", "480",
         "+set", "in_mouse", "0",
         "+set", "bot_enable", "0",
-        "+set", "com_maxfps", "125",
+        "+set", "com_maxfps", "60",
+        "+set", "pmove_fixed", "1",
+        "+set", "pmove_msec", "8",
         "+devmap", "q3dm1"
     )
     $Proc = Start-Process -FilePath $Q3Exe -ArgumentList $Q3Args -WorkingDirectory $Q3Dir -PassThru

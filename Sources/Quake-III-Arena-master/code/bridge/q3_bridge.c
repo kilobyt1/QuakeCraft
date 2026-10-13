@@ -787,13 +787,15 @@ void QCB_ConvertWindowDepthToLinearQ3Units(int width, int height, float zNear, f
     const float sumNearFar = zFar + zNear;
     const float diffNearFar = zFar - zNear;
     const int totalPixels = width * height;
+    uint32_t *u = (uint32_t *)depthBuf;
     int i;
 
     for (i = 0; i < totalPixels; i++) {
-        float zw = depthBuf[i];
-        if (zw >= 0.99999f) {
+        /* In IEEE 754 float, 1.0f is 0x3F800000. Any value >= 0.99999f (0x3F7FFFE0) is sky */
+        if (u[i] >= 0x3F7FFFE0U) {
             depthBuf[i] = 0.0f; /* Sky / background sentinel (no Q3 geometry) */
         } else {
+            float zw = depthBuf[i];
             float ndcZ = 2.0f * zw - 1.0f;
             float denom = sumNearFar - ndcZ * diffNearFar;
             depthBuf[i] = (denom > 0.0001f) ? (twoNearFar / denom) : 0.0f;

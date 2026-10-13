@@ -60,6 +60,7 @@ public final class VoxelStreamer {
 	private volatile int pendingOriginX = Integer.MIN_VALUE;
 	private volatile int pendingOriginY = Integer.MIN_VALUE;
 	private volatile int pendingOriginZ = Integer.MIN_VALUE;
+	private long lastScanTimestampNs = 0L;
 	private int ticksSinceFullScan = 0;
 	private int updateCounter = 0;
 
@@ -89,6 +90,7 @@ public final class VoxelStreamer {
 			lastOriginY = originY;
 			lastOriginZ = originZ;
 			ticksSinceFullScan = 0;
+			lastScanTimestampNs = System.nanoTime();
 			scanAndPublish(bridge, level, originX, originY, originZ, anchorMcX, anchorMcY, anchorMcZ, syncStagingCells);
 			return;
 		}
@@ -97,26 +99,28 @@ public final class VoxelStreamer {
 			return;
 		}
 
+		final long now = System.nanoTime();
+		if (scanInProgress.get() || (now - lastScanTimestampNs < 150_000_000L)) {
+			// Don't overwhelm weak CPUs (e.g. handhelds / APUs) with sub-150ms back-to-back scans during fast bunny-hopping
+			return;
+		}
+
 		pendingOriginX = originX;
 		pendingOriginY = originY;
 		pendingOriginZ = originZ;
+		lastOriginX = originX;
+		lastOriginY = originY;
+		lastOriginZ = originZ;
 		ticksSinceFullScan = 0;
 
 		if (scanInProgress.compareAndSet(false, true)) {
+			lastScanTimestampNs = now;
 			scanExecutor.submit(() -> {
 				try {
-					while (true) {
-						final int curOriginX = pendingOriginX;
-						final int curOriginY = pendingOriginY;
-						final int curOriginZ = pendingOriginZ;
-						scanAndPublish(bridge, level, curOriginX, curOriginY, curOriginZ, anchorMcX, anchorMcY, anchorMcZ, asyncStagingCells);
-						lastOriginX = curOriginX;
-						lastOriginY = curOriginY;
-						lastOriginZ = curOriginZ;
-						if (pendingOriginX == curOriginX && pendingOriginY == curOriginY && pendingOriginZ == curOriginZ) {
-							break;
-						}
-					}
+					final int curOriginX = pendingOriginX;
+					final int curOriginY = pendingOriginY;
+					final int curOriginZ = pendingOriginZ;
+					scanAndPublish(bridge, level, curOriginX, curOriginY, curOriginZ, anchorMcX, anchorMcY, anchorMcZ, asyncStagingCells);
 				} catch (Throwable ignored) {
 				} finally {
 					scanInProgress.set(false);
@@ -245,15 +249,13 @@ public final class VoxelStreamer {
 	}
 
 	private static byte encodeCached(final BlockState state) {
-		synchronized (STATE_CACHE) {
-			final byte cached = STATE_CACHE.getByte(state);
-			if (cached != (byte) -1) {
-				return cached;
-			}
-			final byte computed = computeBlockStateCode(state);
-			STATE_CACHE.put(state, computed);
-			return computed;
+		final byte cached = STATE_CACHE.getByte(state);
+		if (cached != (byte) -1) {
+			return cached;
 		}
+		final byte computed = computeBlockStateCode(state);
+		STATE_CACHE.put(state, computed);
+		return computed;
 	}
 
 	public static byte encodeBlockState(final Level level, final BlockPos pos, final BlockState state) {
