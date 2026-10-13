@@ -10,6 +10,7 @@ import net.minecraft.client.Options;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
@@ -529,6 +530,10 @@ public final class PlayerControllerSync {
 						sp.resetFallDistance();
 						if (sp.connection != null) {
 							sp.connection.resetPosition();
+						}
+						final ServerLevel sLevel = (ServerLevel) sp.level();
+						if (sLevel != null) {
+							sLevel.getChunkSource().move(sp);
 						}
 					}
 				});

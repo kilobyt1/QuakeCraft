@@ -57,12 +57,14 @@ public final class ActorSyncAndCombat {
 
 	private final float[] tmpQ3Pos = new float[3];
 
+	private int tickCounter = 0;
+
 	public void onClientTick(
 		final Minecraft mc,
 		final SharedMemoryBridge bridge,
 		final PlayerControllerSync controller
 	) {
-		if (bridge == null || mc.player == null || mc.level == null) {
+		if (bridge == null || mc.player == null || mc.level == null || !controller.isPassthroughActive()) {
 			return;
 		}
 		final LocalPlayer player = mc.player;
@@ -72,8 +74,10 @@ public final class ActorSyncAndCombat {
 		final float anchorY = controller.getAnchorMcY();
 		final float anchorZ = controller.getAnchorMcZ();
 
-		// 1. Stream nearby LivingEntity mobs -> shm->actors
-		publishNearbyActors(bridge, level, player, anchorX, anchorY, anchorZ);
+		// 1. Stream nearby LivingEntity mobs -> shm->actors (throttled to 10 Hz for CPU efficiency)
+		if ((tickCounter++ & 1) == 0) {
+			publishNearbyActors(bridge, level, player, anchorX, anchorY, anchorZ);
+		}
 
 		// 2. Quick powerup / pickup hotkeys in gameplay:
 		//    F8 = Give Quad Damage + Battle Suit + MegaHealth + Red Armor + Full Ammo
@@ -105,14 +109,16 @@ public final class ActorSyncAndCombat {
 		final float anchorY,
 		final float anchorZ
 	) {
-		final AABB searchBox = player.getBoundingBox().inflate(48.0, 32.0, 48.0);
+		final AABB searchBox = player.getBoundingBox().inflate(32.0, 24.0, 32.0);
 		final List<LivingEntity> entities = level.getEntitiesOfClass(
 			LivingEntity.class,
 			searchBox,
 			ent -> ent != player && ent.isAlive() && !ent.isSpectator()
 		);
 
-		entities.sort(Comparator.comparingDouble(ent -> ent.distanceToSqr(player)));
+		if (entities.size() > SharedMemoryBridge.MAX_ACTORS) {
+			entities.sort(Comparator.comparingDouble(ent -> ent.distanceToSqr(player)));
+		}
 		final int count = Math.min(SharedMemoryBridge.MAX_ACTORS, entities.size());
 
 		final var seg = bridge.segment;

@@ -111,6 +111,9 @@ public final class QuakeFrameCompositor {
 	private Field lastPipelineField = null;
 	private Field lastProgramField = null;
 
+	private int lastBoundColorTexId = -1;
+	private int lastBoundDepthTexId = -1;
+
 	private long lastUploadedFrameNumber = -1L;
 	private int cachedFrameWidth = 0;
 	private int cachedFrameHeight = 0;
@@ -148,8 +151,16 @@ public final class QuakeFrameCompositor {
 		final float mcFar = Math.max(64.0f, mc.options.getEffectiveRenderDistance() * 64.0f);
 
 		GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
-		GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, glColorTex.glId(), 0);
-		GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, glDepthTex.glId(), 0);
+		final int curColorId = glColorTex.glId();
+		final int curDepthId = glDepthTex.glId();
+		if (curColorId != lastBoundColorTexId) {
+			GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, curColorId, 0);
+			lastBoundColorTexId = curColorId;
+		}
+		if (curDepthId != lastBoundDepthTexId) {
+			GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, curDepthId, 0);
+			lastBoundDepthTexId = curDepthId;
+		}
 		GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
 
 		GlStateManager._viewport(0, 0, target.width, target.height);
