@@ -680,10 +680,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			s_qcbWorldPassCaptured = qtrue;
 		}
 
-		// Clear color buffer to transparent black so the subsequent pass (RF_DEPTHHACK weapon + 2D HUD)
-		// is captured cleanly into the overlay layer
+		// Clear color & depth buffers with GLS_DEFAULT (depth mask enabled) so the subsequent pass
+		// (RF_DEPTHHACK first-person weapon + 2D HUD) renders cleanly into the overlay layer
+		GL_State( GLS_DEFAULT );
 		qglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
-		qglClear( GL_COLOR_BUFFER_BIT );
+		qglClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
 		if ( hasDepthHackSurfs ) {
 			oldEntityNum = -1;

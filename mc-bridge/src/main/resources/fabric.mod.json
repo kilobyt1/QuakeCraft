@@ -3,7 +3,7 @@
 	"id": "quakecraft",
 	"version": "${version}",
 	"name": "QuakeCraft Bridge",
-	"description": "True two-process passthrough transceiver & depth compositor connecting Quake III Arena (quake3-bridge.exe) with Minecraft 26.3 via Local\\QuakeCraftBridgeV1 shared memory.",
+	"description": "True two-process passthrough transceiver & depth compositor connecting Quake III Arena (quake3-bridge.exe) with Minecraft 26.3 via Local\\\\QuakeCraftBridgeV1 shared memory.",
 	"authors": [
 		"QuakeCraft"
 	],

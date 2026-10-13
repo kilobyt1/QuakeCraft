@@ -11,9 +11,9 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL14;
-import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL33;
 
 /**
  * Depth-aware OpenGL frame compositor for QuakeCraft (Stage 3).
@@ -50,13 +50,19 @@ public final class QuakeFrameCompositor {
 			vec2 uv = vUv * uUvScale;
 			vec4 col = texture(uWorldColor, uv);
 			float zQ3 = texture(uWorldDepth, uv).r;
-			if (zQ3 <= 0.001 || col.a <= 0.001) {
+			float luma = max(col.r, max(col.g, col.b));
+			if (zQ3 > 0.001) {
+				float zMc = zQ3 * (1.0 / 32.0);
+				float revZ = (uMcNear / max(zMc, uMcNear)) - (uMcNear / uMcFar);
+				gl_FragDepth = clamp(revZ, 0.0, 1.0);
+				fragColor = vec4(col.rgb, 1.0);
+			} else if (luma > 0.02) {
+				gl_FragDepth = 0.9999;
+				float alpha = smoothstep(0.02, 0.15, luma);
+				fragColor = vec4(col.rgb, alpha);
+			} else {
 				discard;
 			}
-			float zMc = zQ3 * (1.0 / 32.0);
-			float revZ = (uMcNear / max(zMc, uMcNear)) - (uMcNear / uMcFar);
-			gl_FragDepth = clamp(revZ, 0.0, 1.0);
-			fragColor = vec4(col.rgb, 1.0);
 		}
 		""";
 
@@ -70,10 +76,10 @@ public final class QuakeFrameCompositor {
 			vec2 uv = vUv * uUvScale;
 			vec4 col = texture(uOverlayColor, uv);
 			float luma = max(col.r, max(col.g, col.b));
-			float alpha = max(col.a, smoothstep(0.02, 0.12, luma));
-			if (alpha <= 0.01) {
+			if (luma <= 0.015) {
 				discard;
 			}
+			float alpha = smoothstep(0.015, 0.06, luma);
 			fragColor = vec4(col.rgb, alpha);
 		}
 		""";
@@ -120,10 +126,29 @@ public final class QuakeFrameCompositor {
 			initialized = true;
 		}
 
-		if (!uploadLatestFrameIfNewer(bridge)) {
-			return;
-		}
-		if (cachedFrameWidth <= 0 || cachedFrameHeight <= 0) {
+		// Save GL state and unbind RenderPearl sampler objects on units 0 & 1
+		final int prevProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
+		final int prevVao = GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING);
+		final int prevDrawFbo = GlStateManager.getFrameBuffer(GL30.GL_DRAW_FRAMEBUFFER);
+		final int prevReadFbo = GlStateManager.getFrameBuffer(GL30.GL_READ_FRAMEBUFFER);
+
+		GlStateManager._activeTexture(GL13.GL_TEXTURE0);
+		final int prevTex0 = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+		final int prevSampler0 = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
+		GL33.glBindSampler(0, 0);
+
+		GlStateManager._activeTexture(GL13.GL_TEXTURE1);
+		final int prevTex1 = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+		final int prevSampler1 = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
+		GL33.glBindSampler(1, 0);
+
+		if (!uploadLatestFrameIfNewer(bridge) || cachedFrameWidth <= 0 || cachedFrameHeight <= 0) {
+			GL33.glBindSampler(0, prevSampler0);
+			GL33.glBindSampler(1, prevSampler1);
+			GlStateManager._activeTexture(GL13.GL_TEXTURE1);
+			GlStateManager._bindTexture(prevTex1);
+			GlStateManager._activeTexture(GL13.GL_TEXTURE0);
+			GlStateManager._bindTexture(prevTex0);
 			return;
 		}
 
@@ -132,23 +157,19 @@ public final class QuakeFrameCompositor {
 		final float mcNear = 0.05f;
 		final float mcFar = Math.max(64.0f, mc.options.getEffectiveRenderDistance() * 64.0f);
 
-		// Save GL state
-		final int prevProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
-		final int prevVao = GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING);
-		final int prevDrawFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
-
 		GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
-		GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, glColorTex.glId(), 0);
-		GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, glDepthTex.glId(), 0);
+		GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, glColorTex.glId(), 0);
+		GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, glDepthTex.glId(), 0);
+		GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
 
 		GlStateManager._viewport(0, 0, target.width, target.height);
 		GlStateManager._disableScissorTest();
 		GlStateManager._disableCull();
-		GL11.glColorMask(true, true, true, true);
-		GL30.glBindVertexArray(vao);
+		GlStateManager._colorMask(0, 15);
+		GlStateManager._glBindVertexArray(vao);
 
 		// Pass 1: Depth-aware 3D world & entities (Reversed-Z: GL_GEQUAL)
-		GL20.glUseProgram(progWorld);
+		GlStateManager._glUseProgram(progWorld);
 		GL20.glUniform1i(uWorldColor, 0);
 		GL20.glUniform1i(uWorldDepth, 1);
 		GL20.glUniform2f(uWorldUvScale, uScale, vScale);
@@ -163,12 +184,19 @@ public final class QuakeFrameCompositor {
 		GlStateManager._enableDepthTest();
 		GlStateManager._depthFunc(GL11.GL_GEQUAL);
 		GlStateManager._depthMask(true);
-		GlStateManager._disableBlend(0);
+		GlStateManager._enableBlend(0);
+		GlStateManager._blendFuncSeparate(
+			GL11.GL_SRC_ALPHA,
+			GL11.GL_ONE_MINUS_SRC_ALPHA,
+			GL11.GL_ONE,
+			GL11.GL_ONE_MINUS_SRC_ALPHA
+		);
+		GlStateManager._blendEquationSeparate(GL14.GL_FUNC_ADD, GL14.GL_FUNC_ADD);
 
-		GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
+		GlStateManager._drawArrays(GL11.GL_TRIANGLES, 0, 3);
 
 		// Pass 2: First-person weapon (RF_DEPTHHACK) + 2D Quake 3 HUD overlay
-		GL20.glUseProgram(progOverlay);
+		GlStateManager._glUseProgram(progOverlay);
 		GL20.glUniform1i(uOverlayColor, 0);
 		GL20.glUniform2f(uOverlayUvScale, uScale, vScale);
 
@@ -186,14 +214,19 @@ public final class QuakeFrameCompositor {
 		);
 		GlStateManager._blendEquationSeparate(GL14.GL_FUNC_ADD, GL14.GL_FUNC_ADD);
 
-		GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
+		GlStateManager._drawArrays(GL11.GL_TRIANGLES, 0, 3);
 
 		// Restore GL state cleanly for RenderPearl
+		GL33.glBindSampler(0, prevSampler0);
+		GL33.glBindSampler(1, prevSampler1);
+		GlStateManager._activeTexture(GL13.GL_TEXTURE1);
+		GlStateManager._bindTexture(prevTex1);
 		GlStateManager._activeTexture(GL13.GL_TEXTURE0);
-		GlStateManager._bindTexture(0);
-		GL30.glBindVertexArray(prevVao);
-		GL20.glUseProgram(prevProgram);
-		GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevDrawFbo);
+		GlStateManager._bindTexture(prevTex0);
+		GlStateManager._glBindVertexArray(prevVao);
+		GlStateManager._glUseProgram(prevProgram);
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, prevReadFbo);
+		GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, prevDrawFbo);
 	}
 
 	private boolean uploadLatestFrameIfNewer(final SharedMemoryBridge bridge) {
@@ -289,6 +322,8 @@ public final class QuakeFrameCompositor {
 		final int tex = GL11.glGenTextures();
 		GlStateManager._activeTexture(GL13.GL_TEXTURE0);
 		GlStateManager._bindTexture(tex);
+		GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_BASE_LEVEL, 0);
+		GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_MAX_LEVEL, 0);
 		GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, filter);
 		GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, filter);
 		GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);

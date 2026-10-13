@@ -16,8 +16,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
-	@Inject(method = "renderLevel", at = @At("TAIL"))
-	private void quakecraft$compositeQuakeFrame(final CallbackInfo ci) {
-		QuakeCraftClient.COMPOSITOR.composite(Minecraft.getInstance(), QuakeCraftClient.bridge);
+	@Inject(method = "render3dHud", at = @At("HEAD"), cancellable = true)
+	private void quakecraft$compositeQuakeFrameBeforeHandClear(final CallbackInfo ci) {
+		final Minecraft mc = Minecraft.getInstance();
+		QuakeCraftClient.COMPOSITOR.composite(mc, QuakeCraftClient.bridge);
+		if (QuakeCraftClient.CONTROLLER.isPassthroughActive()
+			&& !QuakeCraftClient.CONTROLLER.isMcInteractMode()
+			&& mc.options.getCameraType().isFirstPerson()) {
+			ci.cancel();
+		}
 	}
 }

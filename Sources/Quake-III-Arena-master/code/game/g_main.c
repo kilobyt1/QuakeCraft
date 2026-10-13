@@ -1726,6 +1726,20 @@ static void QCB_SyncGameWorld( void ) {
 			&level.clients[0].ps, sizeof( level.clients[0] ) );
 	}
 
+	/* When Minecraft voxel world is active, unlink static BSP map pickups, movers, and triggers */
+	if ( QCB_HasVoxels() ) {
+		for ( i = MAX_CLIENTS; i < QCB_PROXY_BASE_ENTNUM; i++ ) {
+			gentity_t *mapEnt = &g_entities[i];
+			if ( !mapEnt->inuse || !mapEnt->r.linked ) {
+				continue;
+			}
+			if ( mapEnt->s.eType == ET_MISSILE || mapEnt->s.eType >= ET_EVENTS || mapEnt->freeAfterEvent ) {
+				continue;
+			}
+			trap_UnlinkEntity( mapEnt );
+		}
+	}
+
 	/* Sync Minecraft LivingEntity actors into reserved gentity_t slots */
 	uint32_t count = shm->actors.count;
 	if ( count > QCB_MAX_ACTORS ) {

@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // tr_light.c
 
 #include "tr_local.h"
+#include "../bridge/q3_bridge.h"
 
 #define	DLIGHT_AT_RADIUS		16
 // at the edge of a dlight's influence, this amount of light will be added
@@ -306,9 +307,9 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 		VectorCopy( ent->e.origin, lightOrigin );
 	}
 
-	// if NOWORLDMODEL, only use dynamic lights (menu system, etc)
+	// if NOWORLDMODEL or QuakeCraft voxel passthrough is active, use clean daylight lighting
 	if ( !(refdef->rdflags & RDF_NOWORLDMODEL ) 
-		&& tr.world->lightGridData ) {
+		&& tr.world->lightGridData && !QCB_HasVoxels() ) {
 		R_SetupEntityLightingGrid( ent );
 	} else {
 		ent->ambientLight[0] = ent->ambientLight[1] = 

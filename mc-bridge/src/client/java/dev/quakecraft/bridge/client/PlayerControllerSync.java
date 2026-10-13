@@ -136,6 +136,18 @@ public final class PlayerControllerSync {
 			prevF7Down = f7Down;
 		}
 
+		if (player.isDeadOrDying()) {
+			anchorInitialized = false;
+			hasValidPose = false;
+			return;
+		}
+
+		// Wait until the client chunk at the player's position is actually loaded before scanning voxels or anchoring
+		if (!level.hasChunk(player.getBlockX() >> 4, player.getBlockZ() >> 4)) {
+			hasValidPose = false;
+			return;
+		}
+
 		boolean forceVoxelScan = false;
 		if (!anchorInitialized) {
 			anchorMcX = (float) Math.floor(player.getX());
@@ -179,7 +191,7 @@ public final class PlayerControllerSync {
 	}
 
 	public void onRenderFrameUpdate(final Minecraft mc, final SharedMemoryBridge bridge) {
-		if (bridge == null || mc.player == null || mc.level == null) {
+		if (bridge == null || mc.player == null || mc.level == null || !anchorInitialized || teleportSeq == 0) {
 			return;
 		}
 		publishInputFrame(mc, bridge, mc.player);
@@ -300,6 +312,10 @@ public final class PlayerControllerSync {
 		final SharedMemoryBridge bridge,
 		final LocalPlayer player
 	) {
+		if (!anchorInitialized || teleportSeq == 0) {
+			hasValidPose = false;
+			return false;
+		}
 		final var seg = bridge.segment;
 		final long q3Heartbeat = seg.get(SharedMemoryBridge.LONG, SharedMemoryBridge.HDR_Q3_HEARTBEAT_NS);
 		if (q3Heartbeat == 0L) {
@@ -320,6 +336,7 @@ public final class PlayerControllerSync {
 		int armor = 0;
 		int weapon = 2;
 		int ammo = 100;
+		int poseFlags = 0;
 		int ackTeleport = 0;
 
 		boolean readOk = false;
@@ -329,6 +346,7 @@ public final class PlayerControllerSync {
 				continue;
 			}
 			VarHandle.acquireFence();
+			poseFlags = seg.get(SharedMemoryBridge.INT, SharedMemoryBridge.POSE_FLAGS);
 			qx = seg.get(SharedMemoryBridge.FLOAT, SharedMemoryBridge.POSE_ORIGIN_X);
 			qy = seg.get(SharedMemoryBridge.FLOAT, SharedMemoryBridge.POSE_ORIGIN_Y);
 			qz = seg.get(SharedMemoryBridge.FLOAT, SharedMemoryBridge.POSE_ORIGIN_Z);
@@ -356,8 +374,19 @@ public final class PlayerControllerSync {
 		}
 
 		SharedMemoryBridge.q3OriginToMcFeet(qx, qy, qz, anchorMcX, anchorMcY, anchorMcZ, tmpMc);
+		final boolean onGround = (poseFlags & (1 << 3)) != 0;
+		double feetY = tmpMc[1];
+		if (onGround) {
+			// Quake 3 PMove hovers by SURFACE_CLIP_EPSILON (0.125 Q3 units = 0.00390625 MC blocks);
+			// snap to the exact block/slab half-step so Minecraft server sees the player flush on the ground.
+			final double snappedHalf = Math.round(feetY * 2.0) * 0.5;
+			if (Math.abs(feetY - snappedHalf) < 0.015) {
+				feetY = snappedHalf;
+			}
+		}
+
 		latestMcFeetX = tmpMc[0];
-		latestMcFeetY = tmpMc[1];
+		latestMcFeetY = feetY;
 		latestMcFeetZ = tmpMc[2];
 		latestMcEyeY = latestMcFeetY + (viewheight - SharedMemoryBridge.Q3_PLAYER_MINS_Z) * SharedMemoryBridge.SCALE_MC_PER_Q3;
 		latestMcYaw = player.getYRot();
@@ -373,6 +402,7 @@ public final class PlayerControllerSync {
 		player.yo = latestMcFeetY;
 		player.zo = latestMcFeetZ;
 		player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
+		player.setOnGround(onGround);
 		final double scaleVel = SharedMemoryBridge.SCALE_MC_PER_Q3 / 20.0;
 		player.setDeltaMovement(vx * scaleVel, vz * scaleVel, -vy * scaleVel);
 		player.resetFallDistance();
@@ -391,6 +421,7 @@ public final class PlayerControllerSync {
 					sp.yo = targetY;
 					sp.zo = targetZ;
 					sp.setPos(targetX, targetY, targetZ);
+					sp.setOnGround(onGround);
 					sp.setDeltaMovement(0.0, 0.0, 0.0);
 					sp.resetFallDistance();
 				}
