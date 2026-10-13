@@ -27,9 +27,9 @@ public abstract class CameraMixin {
 		ctrl.onRenderFrameUpdate(mc, QuakeCraftClient.bridge);
 		if (ctrl.isPassthroughActive() && mc.options.getCameraType().isFirstPerson()) {
 			this.setPosition(
-				ctrl.getLatestMcFeetX(),
-				ctrl.getLatestMcEyeY(),
-				ctrl.getLatestMcFeetZ()
+				ctrl.getRenderFeetX(),
+				ctrl.getRenderEyeY(),
+				ctrl.getRenderFeetZ()
 			);
 		}
 	}

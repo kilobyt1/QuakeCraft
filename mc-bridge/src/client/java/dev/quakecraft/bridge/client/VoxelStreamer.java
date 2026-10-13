@@ -45,10 +45,21 @@ public final class VoxelStreamer {
 		STATE_CACHE.defaultReturnValue((byte) -1);
 	}
 
-	private final byte[] stagingCells = new byte[SharedMemoryBridge.VOXEL_TOTAL];
-	private int lastOriginX = Integer.MIN_VALUE;
-	private int lastOriginY = Integer.MIN_VALUE;
-	private int lastOriginZ = Integer.MIN_VALUE;
+	private final byte[] syncStagingCells = new byte[SharedMemoryBridge.VOXEL_TOTAL];
+	private final byte[] asyncStagingCells = new byte[SharedMemoryBridge.VOXEL_TOTAL];
+	private final java.util.concurrent.ExecutorService scanExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+		final Thread t = new Thread(r, "QuakeCraft-VoxelStreamer");
+		t.setDaemon(true);
+		t.setPriority(Thread.NORM_PRIORITY - 1);
+		return t;
+	});
+	private final java.util.concurrent.atomic.AtomicBoolean scanInProgress = new java.util.concurrent.atomic.AtomicBoolean(false);
+	private volatile int lastOriginX = Integer.MIN_VALUE;
+	private volatile int lastOriginY = Integer.MIN_VALUE;
+	private volatile int lastOriginZ = Integer.MIN_VALUE;
+	private volatile int pendingOriginX = Integer.MIN_VALUE;
+	private volatile int pendingOriginY = Integer.MIN_VALUE;
+	private volatile int pendingOriginZ = Integer.MIN_VALUE;
 	private int ticksSinceFullScan = 0;
 	private int updateCounter = 0;
 
@@ -72,16 +83,59 @@ public final class VoxelStreamer {
 
 		final boolean moved = (originX != lastOriginX) || (originY != lastOriginY) || (originZ != lastOriginZ);
 		ticksSinceFullScan++;
-		if (!forceImmediate && !moved && ticksSinceFullScan < 10) {
+
+		if (forceImmediate) {
+			lastOriginX = originX;
+			lastOriginY = originY;
+			lastOriginZ = originZ;
+			ticksSinceFullScan = 0;
+			scanAndPublish(bridge, level, originX, originY, originZ, anchorMcX, anchorMcY, anchorMcZ, syncStagingCells);
 			return;
 		}
 
-		lastOriginX = originX;
-		lastOriginY = originY;
-		lastOriginZ = originZ;
-		ticksSinceFullScan = 0;
-		updateCounter++;
+		if (!moved && ticksSinceFullScan < 100) {
+			return;
+		}
 
+		pendingOriginX = originX;
+		pendingOriginY = originY;
+		pendingOriginZ = originZ;
+		ticksSinceFullScan = 0;
+
+		if (scanInProgress.compareAndSet(false, true)) {
+			scanExecutor.submit(() -> {
+				try {
+					while (true) {
+						final int curOriginX = pendingOriginX;
+						final int curOriginY = pendingOriginY;
+						final int curOriginZ = pendingOriginZ;
+						scanAndPublish(bridge, level, curOriginX, curOriginY, curOriginZ, anchorMcX, anchorMcY, anchorMcZ, asyncStagingCells);
+						lastOriginX = curOriginX;
+						lastOriginY = curOriginY;
+						lastOriginZ = curOriginZ;
+						if (pendingOriginX == curOriginX && pendingOriginY == curOriginY && pendingOriginZ == curOriginZ) {
+							break;
+						}
+					}
+				} catch (Throwable ignored) {
+				} finally {
+					scanInProgress.set(false);
+				}
+			});
+		}
+	}
+
+	private void scanAndPublish(
+		final SharedMemoryBridge bridge,
+		final Level level,
+		final int originX,
+		final int originY,
+		final int originZ,
+		final float anchorMcX,
+		final float anchorMcY,
+		final float anchorMcZ,
+		final byte[] stagingCells
+	) {
 		Arrays.fill(stagingCells, (byte) SharedMemoryBridge.VOX_AIR);
 
 		final int minLevelY = level.getMinY();
@@ -111,7 +165,13 @@ public final class VoxelStreamer {
 				}
 
 				final LevelChunk chunk = level.getChunk(cx, cz);
+				if (chunk == null) {
+					continue;
+				}
 				final LevelChunkSection[] sections = chunk.getSections();
+				if (sections == null) {
+					continue;
+				}
 
 				int dy = 0;
 				while (dy < SharedMemoryBridge.VOXEL_DIM) {
@@ -143,7 +203,7 @@ public final class VoxelStreamer {
 							for (int dx = dxStart; dx < dxEnd; dx++) {
 								final int lx = (originX + dx) & 15;
 								final BlockState state = section.getBlockState(lx, ly, lz);
-								if (!state.isAir()) {
+								if (state != null && !state.isAir()) {
 									stagingCells[yzOffset + dx] = encodeCached(state);
 								}
 							}
@@ -168,6 +228,7 @@ public final class VoxelStreamer {
 		seg.set(SharedMemoryBridge.FLOAT, SharedMemoryBridge.VOXELS_ANCHOR_X, anchorMcX);
 		seg.set(SharedMemoryBridge.FLOAT, SharedMemoryBridge.VOXELS_ANCHOR_Y, anchorMcY);
 		seg.set(SharedMemoryBridge.FLOAT, SharedMemoryBridge.VOXELS_ANCHOR_Z, anchorMcZ);
+		updateCounter++;
 		seg.set(SharedMemoryBridge.INT, SharedMemoryBridge.VOXELS_UPDATE_COUNT, updateCounter);
 
 		MemorySegment.copy(
@@ -184,13 +245,15 @@ public final class VoxelStreamer {
 	}
 
 	private static byte encodeCached(final BlockState state) {
-		final byte cached = STATE_CACHE.getByte(state);
-		if (cached != (byte) -1) {
-			return cached;
+		synchronized (STATE_CACHE) {
+			final byte cached = STATE_CACHE.getByte(state);
+			if (cached != (byte) -1) {
+				return cached;
+			}
+			final byte computed = computeBlockStateCode(state);
+			STATE_CACHE.put(state, computed);
+			return computed;
 		}
-		final byte computed = computeBlockStateCode(state);
-		STATE_CACHE.put(state, computed);
-		return computed;
 	}
 
 	public static byte encodeBlockState(final Level level, final BlockPos pos, final BlockState state) {

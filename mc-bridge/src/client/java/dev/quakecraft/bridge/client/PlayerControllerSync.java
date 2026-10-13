@@ -38,6 +38,18 @@ public final class PlayerControllerSync {
 	private double latestMcFeetY = 64.0;
 	private double latestMcFeetZ = 0.0;
 	private double latestMcEyeY = 65.62;
+	private double latestMcVx = 0.0;
+	private double latestMcVy = 0.0;
+	private double latestMcVz = 0.0;
+	private float latestViewheight = 26.0f;
+	private boolean latestOnGround = false;
+	private long latestPoseTimestampNs = 0L;
+
+	private double renderFeetX = 0.0;
+	private double renderFeetY = 64.0;
+	private double renderFeetZ = 0.0;
+	private double renderEyeY = 65.62;
+
 	private float latestMcYaw = 0.0f;
 	private float latestMcPitch = 0.0f;
 	private int latestHealth = 100;
@@ -94,6 +106,22 @@ public final class PlayerControllerSync {
 
 	public double getLatestMcEyeY() {
 		return latestMcEyeY;
+	}
+
+	public double getRenderFeetX() {
+		return hasValidPose ? renderFeetX : latestMcFeetX;
+	}
+
+	public double getRenderFeetY() {
+		return hasValidPose ? renderFeetY : latestMcFeetY;
+	}
+
+	public double getRenderFeetZ() {
+		return hasValidPose ? renderFeetZ : latestMcFeetZ;
+	}
+
+	public double getRenderEyeY() {
+		return hasValidPose ? renderEyeY : latestMcEyeY;
 	}
 
 	public float getLatestMcYaw() {
@@ -223,19 +251,35 @@ public final class PlayerControllerSync {
 			return;
 		}
 
-		// Only re-apply the Q3 position when a NEW pose has been published since the
-		// last tick. This prevents the render thread from snapping the player back to a
-		// stale Q3 position every frame (60-165 Hz), which was the root cause of the
-		// mid-air surfing, flying, and pit-bounce artifacts.
 		final var seg = bridge.segment;
 		final int currentSeq = seg.get(SharedMemoryBridge.INT, SharedMemoryBridge.POSE_SEQ);
-		if (currentSeq == lastAppliedPoseSeq || (currentSeq & 1) != 0) {
-			return;
+		if (currentSeq != lastAppliedPoseSeq && (currentSeq & 1) == 0) {
+			// New pose is ready — do the full read+apply (without syncing server; that's
+			// done once per tick in onClientTick).
+			readAndApplyQ3Pose(mc, bridge, mc.player, false);
 		}
 
-		// New pose is ready — do the full read+apply (without syncing server; that's
-		// done once per tick in onClientTick).
-		readAndApplyQ3Pose(mc, bridge, mc.player, false);
+		// Update continuous sub-tick velocity extrapolated pose for this render frame
+		updateRenderPose();
+	}
+
+	private void updateRenderPose() {
+		if (!hasValidPose) {
+			renderFeetX = latestMcFeetX;
+			renderFeetY = latestMcFeetY;
+			renderFeetZ = latestMcFeetZ;
+			renderEyeY = latestMcEyeY;
+			return;
+		}
+		final double dt = Math.max(0.0, Math.min(0.035, (System.nanoTime() - latestPoseTimestampNs) * 1e-9));
+		renderFeetX = latestMcFeetX + latestMcVx * dt;
+		double extY = latestMcFeetY + latestMcVy * dt;
+		if (latestOnGround && extY < latestMcFeetY) {
+			extY = latestMcFeetY;
+		}
+		renderFeetY = extY;
+		renderFeetZ = latestMcFeetZ + latestMcVz * dt;
+		renderEyeY = renderFeetY + (latestViewheight - SharedMemoryBridge.Q3_PLAYER_MINS_Z) * SharedMemoryBridge.SCALE_MC_PER_Q3;
 	}
 
 	private void issueTeleportToCurrentMcPos(final SharedMemoryBridge bridge, final LocalPlayer player) {
@@ -432,10 +476,16 @@ public final class PlayerControllerSync {
 			feetY -= (0.125f * SharedMemoryBridge.SCALE_MC_PER_Q3);
 		}
 
+		latestPoseTimestampNs = System.nanoTime();
 		latestMcFeetX = tmpMc[0];
 		latestMcFeetY = feetY;
 		latestMcFeetZ = tmpMc[2];
-		latestMcEyeY = latestMcFeetY + (viewheight - SharedMemoryBridge.Q3_PLAYER_MINS_Z) * SharedMemoryBridge.SCALE_MC_PER_Q3;
+		latestMcVx = vx * SharedMemoryBridge.SCALE_MC_PER_Q3;
+		latestMcVy = vz * SharedMemoryBridge.SCALE_MC_PER_Q3;
+		latestMcVz = -vy * SharedMemoryBridge.SCALE_MC_PER_Q3;
+		latestViewheight = viewheight;
+		latestOnGround = onGround && !inWater;
+		latestMcEyeY = latestMcFeetY + (latestViewheight - SharedMemoryBridge.Q3_PLAYER_MINS_Z) * SharedMemoryBridge.SCALE_MC_PER_Q3;
 		latestMcYaw = player.getYRot();
 		latestMcPitch = player.getXRot();
 		latestHealth = health;
@@ -443,6 +493,7 @@ public final class PlayerControllerSync {
 		latestWeapon = weapon;
 		latestAmmo = ammo;
 		hasValidPose = true;
+		updateRenderPose();
 
 		// Synchronize LocalPlayer position & velocity (blocks/tick = Q3 units/sec / (32 * 20))
 		player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);

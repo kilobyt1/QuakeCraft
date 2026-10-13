@@ -22,4 +22,11 @@ public abstract class LocalPlayerMixin {
 			ci.cancel();
 		}
 	}
+
+	@Inject(method = "sendPosition", at = @At("HEAD"), cancellable = true)
+	private void quakecraft$bypassVanillaSendPosition(final CallbackInfo ci) {
+		if (QuakeCraftClient.CONTROLLER.isPassthroughActive()) {
+			ci.cancel();
+		}
+	}
 }
