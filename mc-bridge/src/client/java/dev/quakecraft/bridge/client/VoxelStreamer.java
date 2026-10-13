@@ -63,15 +63,16 @@ public final class VoxelStreamer {
 		final float anchorMcZ,
 		final boolean forceImmediate
 	) {
-		// Snap grid origin to 8-block boundaries so the 64x64x64 window (+-32 blocks)
-		// still provides at least +-24 blocks of margin while cutting grid shifts by 8x.
-		final int originX = (Mth.floor(playerMcX) & ~7) - SharedMemoryBridge.VOXEL_HALF;
-		final int originY = (Mth.floor(playerMcY) & ~7) - SharedMemoryBridge.VOXEL_HALF;
-		final int originZ = (Mth.floor(playerMcZ) & ~7) - SharedMemoryBridge.VOXEL_HALF;
+		// Snap grid origin to 4-block boundaries so the 64x64x64 window (+-32 blocks)
+		// still provides +-28 blocks of margin while cutting grid shifts by 4x and
+		// preventing "blind-spot pit" artifacts caused by the coarser 8-block snap.
+		final int originX = (Mth.floor(playerMcX) & ~3) - SharedMemoryBridge.VOXEL_HALF;
+		final int originY = (Mth.floor(playerMcY) & ~3) - SharedMemoryBridge.VOXEL_HALF;
+		final int originZ = (Mth.floor(playerMcZ) & ~3) - SharedMemoryBridge.VOXEL_HALF;
 
 		final boolean moved = (originX != lastOriginX) || (originY != lastOriginY) || (originZ != lastOriginZ);
 		ticksSinceFullScan++;
-		if (!forceImmediate && !moved && ticksSinceFullScan < 20) {
+		if (!forceImmediate && !moved && ticksSinceFullScan < 10) {
 			return;
 		}
 

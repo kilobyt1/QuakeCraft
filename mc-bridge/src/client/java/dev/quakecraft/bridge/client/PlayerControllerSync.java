@@ -45,6 +45,14 @@ public final class PlayerControllerSync {
 	private int latestWeapon = 2;
 	private int latestAmmo = 100;
 
+	/**
+	 * The POSE_SEQ value from the last tick-level pose read. Used in
+	 * onRenderFrameUpdate to detect whether the pose has actually changed since
+	 * the last tick; if it hasn't, we reuse latestMcFeet* directly and skip
+	 * the setPos call to eliminate render-frame positional jitter.
+	 */
+	private int lastAppliedPoseSeq = 0;
+
 	private final float[] tmpQ3 = new float[3];
 	private final float[] tmpMc = new float[3];
 
@@ -208,10 +216,33 @@ public final class PlayerControllerSync {
 		if (bridge == null || mc.player == null || mc.level == null || !anchorInitialized || teleportSeq == 0) {
 			return;
 		}
+		// Always update the mouse/input frame so Quake 3 sees fresh yaw/pitch every render frame.
 		publishInputFrame(mc, bridge, mc.player);
-		if (passthroughEnabled) {
-			readAndApplyQ3Pose(mc, bridge, mc.player, false);
+
+		if (!passthroughEnabled || !hasValidPose) {
+			return;
 		}
+
+		// Only re-apply the Q3 position when a NEW pose has been published since the
+		// last tick. This prevents the render thread from snapping the player back to a
+		// stale Q3 position every frame (60-165 Hz), which was the root cause of the
+		// mid-air surfing, flying, and pit-bounce artifacts.
+		final var seg = bridge.segment;
+		final int currentSeq = seg.get(SharedMemoryBridge.INT, SharedMemoryBridge.POSE_SEQ);
+		if (currentSeq == lastAppliedPoseSeq || (currentSeq & 1) != 0) {
+			// Pose unchanged or being written — hold current latestMcFeet* position.
+			// Just keep the player's rendered position pinned without calling setPos.
+			final LocalPlayer player = mc.player;
+			player.xo = latestMcFeetX;
+			player.yo = latestMcFeetY;
+			player.zo = latestMcFeetZ;
+			player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
+			return;
+		}
+
+		// New pose is ready — do the full read+apply (without syncing server; that's
+		// done once per tick in onClientTick).
+		readAndApplyQ3Pose(mc, bridge, mc.player, false);
 	}
 
 	private void issueTeleportToCurrentMcPos(final SharedMemoryBridge bridge, final LocalPlayer player) {
@@ -355,6 +386,7 @@ public final class PlayerControllerSync {
 		int ackTeleport = 0;
 
 		boolean readOk = false;
+		int readSeq = 0;
 		for (int attempt = 0; attempt < 4; attempt++) {
 			final int seq1 = seg.get(SharedMemoryBridge.INT, SharedMemoryBridge.POSE_SEQ);
 			if (seq1 == 0 || (seq1 & 1) != 0) {
@@ -379,6 +411,7 @@ public final class PlayerControllerSync {
 			VarHandle.acquireFence();
 			final int seq2 = seg.get(SharedMemoryBridge.INT, SharedMemoryBridge.POSE_SEQ);
 			if (seq1 == seq2) {
+				readSeq = seq1;
 				readOk = true;
 				break;
 			}
@@ -388,10 +421,18 @@ public final class PlayerControllerSync {
 			return false;
 		}
 
+		// Record which seq we successfully consumed — onRenderFrameUpdate uses this to
+		// decide whether a new pose is available without re-reading shared memory.
+		lastAppliedPoseSeq = readSeq;
+
 		SharedMemoryBridge.q3OriginToMcFeet(qx, qy, qz, anchorMcX, anchorMcY, anchorMcZ, tmpMc);
-		final boolean onGround = (poseFlags & (1 << 3)) != 0;
+		final boolean onGround  = (poseFlags & (1 << 3)) != 0;
+		final boolean inWater   = (poseFlags & (1 << 4)) != 0;
 		double feetY = tmpMc[1];
-		if (onGround) {
+		// Only apply half-block snapping when on solid ground (not in water/lava/air).
+		// Applying the snap while swimming caused the camera to bounce between Y values
+		// because PMove's water physics doesn't produce integer-aligned origins.
+		if (onGround && !inWater) {
 			// Quake 3 PMove hovers by SURFACE_CLIP_EPSILON (0.125 Q3 units = 0.00390625 MC blocks);
 			// snap to the exact block/slab half-step so Minecraft server sees the player flush on the ground.
 			final double snappedHalf = Math.round(feetY * 2.0) * 0.5;
@@ -417,7 +458,7 @@ public final class PlayerControllerSync {
 		player.yo = latestMcFeetY;
 		player.zo = latestMcFeetZ;
 		player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
-		player.setOnGround(onGround);
+		player.setOnGround(onGround && !inWater);
 		final double scaleVel = SharedMemoryBridge.SCALE_MC_PER_Q3 / 20.0;
 		player.setDeltaMovement(vx * scaleVel, vz * scaleVel, -vy * scaleVel);
 		player.resetFallDistance();
@@ -432,13 +473,14 @@ public final class PlayerControllerSync {
 				final double targetZ = latestMcFeetZ;
 				final float targetYaw = latestMcYaw;
 				final float targetPitch = latestMcPitch;
+				final boolean targetOnGround = onGround && !inWater;
 				final java.util.UUID uuid = player.getUUID();
 				server.executeIfPossible(() -> {
 					final ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
 					if (sp != null) {
 						sp.noPhysics = true;
 						sp.absSnapTo(targetX, targetY, targetZ, targetYaw, targetPitch);
-						sp.setOnGround(onGround);
+						sp.setOnGround(targetOnGround);
 						sp.setDeltaMovement(0.0, 0.0, 0.0);
 						sp.resetFallDistance();
 						if (sp.connection != null) {
