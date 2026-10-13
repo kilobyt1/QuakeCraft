@@ -45,6 +45,7 @@ public final class ActorSyncAndCombat {
 	public static final int ITEM_HASTE = 9;
 	public static final int ITEM_REGEN = 10;
 	public static final int ITEM_AMMO_PACK = 11;
+	public static final int ITEM_BATTLESUIT = 12;
 
 	private int actorSeq = 0;
 	private float lastPlayerMcHealth = 20.0f;
@@ -75,15 +76,16 @@ public final class ActorSyncAndCombat {
 		publishNearbyActors(bridge, level, player, anchorX, anchorY, anchorZ);
 
 		// 2. Quick powerup / pickup hotkeys in gameplay:
-		//    F8 = Give Quad Damage + MegaHealth + Red Armor
+		//    F8 = Give Quad Damage + Battle Suit + MegaHealth + Red Armor + Full Ammo
 		if (mc.mouseHandler.isMouseGrabbed()) {
 			final boolean f8Down = InputConstants.isKeyDown(InputConstants.KEY_F8);
 			if (f8Down && !prevF8Down) {
 				pushEventToQ3(bridge, SharedMemoryBridge.EV_GIVE_ITEM, ITEM_QUAD_DAMAGE, 30, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+				pushEventToQ3(bridge, SharedMemoryBridge.EV_GIVE_ITEM, ITEM_BATTLESUIT, 30, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
 				pushEventToQ3(bridge, SharedMemoryBridge.EV_GIVE_ITEM, ITEM_MEGA_HEALTH, 100, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
 				pushEventToQ3(bridge, SharedMemoryBridge.EV_GIVE_ITEM, ITEM_ARMOR_BODY, 100, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
 				pushEventToQ3(bridge, SharedMemoryBridge.EV_GIVE_ITEM, ITEM_AMMO_PACK, 200, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
-				player.sendOverlayMessage(Component.literal("[QuakeCraft] QUAD DAMAGE + MEGAHEALTH + RED ARMOR (F8)!"));
+				player.sendOverlayMessage(Component.literal("[QuakeCraft] QUAD DAMAGE + BATTLE SUIT + MEGAHEALTH + RED ARMOR (F8)!"));
 			}
 			prevF8Down = f8Down;
 		}

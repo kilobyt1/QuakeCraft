@@ -230,13 +230,6 @@ public final class PlayerControllerSync {
 		final var seg = bridge.segment;
 		final int currentSeq = seg.get(SharedMemoryBridge.INT, SharedMemoryBridge.POSE_SEQ);
 		if (currentSeq == lastAppliedPoseSeq || (currentSeq & 1) != 0) {
-			// Pose unchanged or being written — hold current latestMcFeet* position.
-			// Just keep the player's rendered position pinned without calling setPos.
-			final LocalPlayer player = mc.player;
-			player.xo = latestMcFeetX;
-			player.yo = latestMcFeetY;
-			player.zo = latestMcFeetZ;
-			player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
 			return;
 		}
 
@@ -434,11 +427,9 @@ public final class PlayerControllerSync {
 		// because PMove's water physics doesn't produce integer-aligned origins.
 		if (onGround && !inWater) {
 			// Quake 3 PMove hovers by SURFACE_CLIP_EPSILON (0.125 Q3 units = 0.00390625 MC blocks);
-			// snap to the exact block/slab half-step so Minecraft server sees the player flush on the ground.
-			final double snappedHalf = Math.round(feetY * 2.0) * 0.5;
-			if (Math.abs(feetY - snappedHalf) < 0.015) {
-				feetY = snappedHalf;
-			}
+			// subtract the hover epsilon directly so Minecraft server and camera see the player flush
+			// on the ground without discontinuous rounding jumps.
+			feetY -= (0.125f * SharedMemoryBridge.SCALE_MC_PER_Q3);
 		}
 
 		latestMcFeetX = tmpMc[0];
@@ -454,10 +445,12 @@ public final class PlayerControllerSync {
 		hasValidPose = true;
 
 		// Synchronize LocalPlayer position & velocity (blocks/tick = Q3 units/sec / (32 * 20))
-		player.xo = latestMcFeetX;
-		player.yo = latestMcFeetY;
-		player.zo = latestMcFeetZ;
 		player.setPos(latestMcFeetX, latestMcFeetY, latestMcFeetZ);
+		if (syncServer) {
+			player.xo = latestMcFeetX;
+			player.yo = latestMcFeetY;
+			player.zo = latestMcFeetZ;
+		}
 		player.setOnGround(onGround && !inWater);
 		final double scaleVel = SharedMemoryBridge.SCALE_MC_PER_Q3 / 20.0;
 		player.setDeltaMovement(vx * scaleVel, vz * scaleVel, -vy * scaleVel);

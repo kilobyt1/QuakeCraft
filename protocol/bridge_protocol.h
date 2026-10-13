@@ -101,6 +101,7 @@ extern "C" {
 #define QCB_ITEM_HASTE          9U  /* Haste 30s */
 #define QCB_ITEM_REGEN          10U /* Regeneration 30s */
 #define QCB_ITEM_AMMO_PACK      11U /* Refill all weapons */
+#define QCB_ITEM_BATTLESUIT     12U /* Battle Suit 30s (damage resistance) */
 
 /* ----------------------------------------------------------------------------
  * 1. QcbPlayerPose (128 bytes) - Written by Quake 3, read by Minecraft

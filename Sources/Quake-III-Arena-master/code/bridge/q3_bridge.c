@@ -169,9 +169,9 @@ static void QCB_ClipBoxToBox(
     cmax[2] = bmax[2] - mins[2];
 
     if (isPositionTest) {
-        if (start[0] > cmin[0] && start[0] < cmax[0] &&
-            start[1] > cmin[1] && start[1] < cmax[1] &&
-            start[2] > cmin[2] && start[2] < cmax[2]) {
+        if (start[0] > cmin[0] + 0.125f && start[0] < cmax[0] - 0.125f &&
+            start[1] > cmin[1] + 0.125f && start[1] < cmax[1] - 0.125f &&
+            start[2] > cmin[2] + 0.125f && start[2] < cmax[2] - 0.25f) {
             trace->startsolid = qtrue;
             trace->allsolid = qtrue;
             trace->fraction = 0.0f;
@@ -193,7 +193,7 @@ static void QCB_ClipBoxToBox(
             float d1 = start[axis] - cmax[axis];
             float d2 = end[axis] - cmax[axis];
             if (d2 > 0.0f) getout = qtrue;
-            if (d1 > 0.0f) startout = qtrue;
+            if (d1 >= -QCB_SURFACE_CLIP_EPSILON) startout = qtrue;
             if (d1 > 0.0f && (d2 >= QCB_SURFACE_CLIP_EPSILON || d2 >= d1)) {
                 return;
             }
@@ -221,7 +221,7 @@ static void QCB_ClipBoxToBox(
             float d1 = cmin[axis] - start[axis];
             float d2 = cmin[axis] - end[axis];
             if (d2 > 0.0f) getout = qtrue;
-            if (d1 > 0.0f) startout = qtrue;
+            if (d1 >= -QCB_SURFACE_CLIP_EPSILON) startout = qtrue;
             if (d1 > 0.0f && (d2 >= QCB_SURFACE_CLIP_EPSILON || d2 >= d1)) {
                 return;
             }
@@ -293,12 +293,20 @@ void QCB_VoxelTrace(
         return;
     }
 
-    /* Wait briefly if Minecraft is in the middle of a 20us atomic voxel copy */
+    /* Wait briefly if Minecraft is in the middle of a voxel copy */
+    uint32_t vseq1 = 0, vseq2 = 0;
     {
         int spin = 0;
-        while ((shm->voxels.seq & 1U) != 0U && spin < 2000) {
+        while (spin < 10000) {
+            vseq1 = shm->voxels.seq;
+            if ((vseq1 & 1U) == 0U) {
+                break;
+            }
             YieldProcessor();
             spin++;
+        }
+        if ((vseq1 & 1U) != 0U) {
+            return;
         }
     }
 
@@ -440,6 +448,16 @@ void QCB_VoxelTrace(
             results->endpos[i] = start[i] + results->fraction * (end[i] - start[i]);
         }
     }
+
+    MemoryBarrier();
+    vseq2 = shm->voxels.seq;
+    if (vseq1 != vseq2) {
+        /* Discard torn trace if Minecraft updated voxel grid mid-sweep */
+        results->fraction = 1.0f;
+        results->startsolid = qfalse;
+        results->allsolid = qfalse;
+        VectorCopy(end, results->endpos);
+    }
 }
 
 int QCB_VoxelPointContents(const vec3_t p) {
@@ -500,14 +518,36 @@ void QCB_ApplyClientInput(usercmd_t *cmd, vec3_t viewangles, int *cgameWeaponSel
     if (!shm || shm->header.input.seq == 0) {
         return;
     }
-    if (!(shm->header.input.flags & QCB_INPUT_ACTIVE)) {
+
+    uint32_t iseq1 = 0, iseq2 = 0;
+    int attempt;
+    int32_t fwd = 0, right = 0, up = 0, wsel = 0;
+    uint32_t btns = 0, iflags = 0;
+    float mcYaw = 0.0f, mcPitch = 0.0f;
+
+    for (attempt = 0; attempt < 4; attempt++) {
+        iseq1 = shm->header.input.seq;
+        if (iseq1 == 0 || (iseq1 & 1U) != 0U) {
+            continue;
+        }
+        MemoryBarrier();
+        iflags  = shm->header.input.flags;
+        fwd     = shm->header.input.forwardmove;
+        right   = shm->header.input.rightmove;
+        up      = shm->header.input.upmove;
+        btns    = shm->header.input.buttons;
+        wsel    = shm->header.input.weaponSelect;
+        mcYaw   = shm->header.input.mcYaw;
+        mcPitch = shm->header.input.mcPitch;
+        MemoryBarrier();
+        iseq2 = shm->header.input.seq;
+        if (iseq1 == iseq2) {
+            break;
+        }
+    }
+    if (iseq1 == 0 || iseq1 != iseq2 || !(iflags & QCB_INPUT_ACTIVE)) {
         return;
     }
-
-    int32_t fwd   = shm->header.input.forwardmove;
-    int32_t right = shm->header.input.rightmove;
-    int32_t up    = shm->header.input.upmove;
-    uint32_t btns = shm->header.input.buttons;
 
     if (btns & 1024U) {
         up = 127;
@@ -520,21 +560,21 @@ void QCB_ApplyClientInput(usercmd_t *cmd, vec3_t viewangles, int *cgameWeaponSel
     cmd->upmove      = QCB_ClampChar(up);
     cmd->buttons     = (int)(btns & 0xFFU);
 
-    if (shm->header.input.weaponSelect >= 1 && shm->header.input.weaponSelect <= 9) {
+    if (wsel >= 1 && wsel <= 9) {
         if (cgameWeaponSelect) {
-            *cgameWeaponSelect = shm->header.input.weaponSelect;
+            *cgameWeaponSelect = wsel;
         }
-        cmd->weapon = (byte)shm->header.input.weaponSelect;
+        cmd->weapon = (byte)wsel;
     }
 
     /* Convert Minecraft camera yaw/pitch to Quake 3 viewangles:
      * q3Yaw = -90.0f - mcYaw, q3Pitch = mcPitch
      */
-    float q3Yaw = -90.0f - shm->header.input.mcYaw;
+    float q3Yaw = -90.0f - mcYaw;
     while (q3Yaw <= -180.0f) q3Yaw += 360.0f;
     while (q3Yaw > 180.0f) q3Yaw -= 360.0f;
 
-    float q3Pitch = shm->header.input.mcPitch;
+    float q3Pitch = mcPitch;
     if (q3Pitch > 89.0f) q3Pitch = 89.0f;
     if (q3Pitch < -89.0f) q3Pitch = -89.0f;
 

@@ -945,25 +945,24 @@ void ClientThink_real( gentity_t *ent ) {
 	pm.pmove_fixed = pmove_fixed.integer | client->pers.pmoveFixed;
 	pm.pmove_msec = pmove_msec.integer;
 
-	if ( QCB_IsActive() && QCB_HasVoxels() && !(ent->r.svFlags & SVF_BOT) && client->ps.pm_type == PM_NORMAL ) {
+	if ( QCB_IsActive() && QCB_HasVoxels() && !(ent->r.svFlags & SVF_BOT) &&
+	     client->ps.pm_type == PM_NORMAL && client->ps.groundEntityNum == ENTITYNUM_NONE ) {
 		trace_t unstuckTr;
-		vec3_t pmins = { -15.0f, -15.0f, -24.0f };
-		vec3_t pmaxs = {  15.0f,  15.0f,  32.0f };
+		vec3_t pmins = { -14.0f, -14.0f, -22.0f };
+		vec3_t pmaxs = {  14.0f,  14.0f,  30.0f };
 		if ( client->ps.pm_flags & PMF_DUCKED ) {
-			pmaxs[2] = 16.0f;
+			pmaxs[2] = 14.0f;
 		}
 		trap_Trace( &unstuckTr, client->ps.origin, client->ps.origin, pmins, pmaxs, client->ps.clientNum, pm.tracemask );
 		if ( unstuckTr.allsolid || unstuckTr.startsolid ) {
-			static const float zNudges[] = { 4.0f, 10.0f, 18.0f, 26.0f, 34.0f };
+			static const float zNudges[] = { 0.5f, 1.0f, 2.0f, 4.0f };
 			static const float xyNudges[][2] = {
-				{ 0.0f, 0.0f },
-				{ 8.0f, 0.0f }, { -8.0f, 0.0f }, { 0.0f, 8.0f }, { 0.0f, -8.0f },
-				{ 14.0f, 0.0f }, { -14.0f, 0.0f }, { 0.0f, 14.0f }, { 0.0f, -14.0f },
-				{ 12.0f, 12.0f }, { -12.0f, 12.0f }, { 12.0f, -12.0f }, { -12.0f, -12.0f }
+				{ 2.0f, 0.0f }, { -2.0f, 0.0f }, { 0.0f, 2.0f }, { 0.0f, -2.0f },
+				{ 4.0f, 0.0f }, { -4.0f, 0.0f }, { 0.0f, 4.0f }, { 0.0f, -4.0f }
 			};
 			int zi, xyi;
 			qboolean fixed = qfalse;
-			for ( zi = 0; zi < 5 && !fixed; zi++ ) {
+			for ( zi = 0; zi < 4 && !fixed; zi++ ) {
 				vec3_t cand;
 				VectorCopy( client->ps.origin, cand );
 				cand[2] += zNudges[zi];
@@ -973,17 +972,15 @@ void ClientThink_real( gentity_t *ent ) {
 					fixed = qtrue;
 				}
 			}
-			for ( xyi = 1; xyi < 13 && !fixed; xyi++ ) {
-				for ( zi = 0; zi < 3 && !fixed; zi++ ) {
-					vec3_t cand;
-					cand[0] = client->ps.origin[0] + xyNudges[xyi][0];
-					cand[1] = client->ps.origin[1] + xyNudges[xyi][1];
-					cand[2] = client->ps.origin[2] + (zi == 0 ? 0.0f : (zi == 1 ? 18.0f : 34.0f));
-					trap_Trace( &unstuckTr, cand, cand, pmins, pmaxs, client->ps.clientNum, pm.tracemask );
-					if ( !unstuckTr.allsolid && !unstuckTr.startsolid ) {
-						VectorCopy( cand, client->ps.origin );
-						fixed = qtrue;
-					}
+			for ( xyi = 0; xyi < 8 && !fixed; xyi++ ) {
+				vec3_t cand;
+				cand[0] = client->ps.origin[0] + xyNudges[xyi][0];
+				cand[1] = client->ps.origin[1] + xyNudges[xyi][1];
+				cand[2] = client->ps.origin[2] + 1.0f;
+				trap_Trace( &unstuckTr, cand, cand, pmins, pmaxs, client->ps.clientNum, pm.tracemask );
+				if ( !unstuckTr.allsolid && !unstuckTr.startsolid ) {
+					VectorCopy( cand, client->ps.origin );
+					fixed = qtrue;
 				}
 			}
 		}

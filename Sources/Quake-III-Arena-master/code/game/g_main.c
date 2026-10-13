@@ -1870,6 +1870,10 @@ static void QCB_SyncGameWorld( void ) {
 					player->client->ps.ammo[i] = 200;
 				}
 				break;
+			case QCB_ITEM_BATTLESUIT:
+				player->client->ps.powerups[PW_BATTLESUIT] = level.time + 30000;
+				G_AddEvent( player, EV_POWERUP_BATTLESUIT, 0 );
+				break;
 			default:
 				break;
 			}
