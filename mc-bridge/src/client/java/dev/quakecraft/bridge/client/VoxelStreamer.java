@@ -168,6 +168,9 @@ public final class VoxelStreamer {
 			return (byte) SharedMemoryBridge.VOX_AIR;
 		}
 		final double maxY = collision.max(Direction.Axis.Y);
+		if (maxY <= 0.125) {
+			return (byte) SharedMemoryBridge.VOX_AIR;
+		}
 		if (maxY <= 0.5625) {
 			return (byte) (SharedMemoryBridge.VOX_SLAB_BOTTOM | flags);
 		}

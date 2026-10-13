@@ -1132,7 +1132,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 	}
 
 
-	if ( !glState.finishCalled ) {
+	if ( !glState.finishCalled && !s_qcbWorldPassCaptured ) {
 		qglFinish();
 	}
 

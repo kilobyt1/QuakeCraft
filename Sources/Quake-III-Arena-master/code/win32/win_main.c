@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "../client/client.h"
 #include "../qcommon/qcommon.h"
+#include "../bridge/q3_bridge.h"
 #include "win_local.h"
 #include "resource.h"
 #include <errno.h>
@@ -1215,8 +1216,8 @@ int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 
     // main game loop
 	while( 1 ) {
-		// if not running as a game client, sleep a bit
-		if ( g_wv.isMinimized || ( com_dedicated && com_dedicated->integer ) ) {
+		// if not running as a game client, sleep a bit (unless QuakeCraft bridge is active)
+		if ( ( g_wv.isMinimized && !QCB_IsActive() ) || ( com_dedicated && com_dedicated->integer ) ) {
 			Sleep( 5 );
 		}
 

@@ -1461,6 +1461,9 @@ void GLimp_Init( void )
 
 	GLW_InitExtensions();
 	WG_CheckHardwareGamma();
+	if ( r_swapInterval ) {
+		r_swapInterval->modified = qtrue;
+	}
 }
 
 /*

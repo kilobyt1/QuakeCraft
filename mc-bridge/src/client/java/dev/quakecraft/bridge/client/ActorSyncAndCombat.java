@@ -335,6 +335,9 @@ public final class ActorSyncAndCombat {
 					}
 					final ServerLevel serverLevel = (ServerLevel) sp.level();
 					final BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
+					final int playerFootY = (int) Math.floor(sp.getY());
+					final double playerX = sp.getX();
+					final double playerZ = sp.getZ();
 
 					for (int dy = -radiusBlocks; dy <= radiusBlocks; dy++) {
 						for (int dz = -radiusBlocks; dz <= radiusBlocks; dz++) {
@@ -342,7 +345,16 @@ public final class ActorSyncAndCombat {
 								if (dx * dx + dy * dy + dz * dz > radiusBlocks * radiusBlocks + 1) {
 									continue;
 								}
-								mpos.set(centerBx + dx, centerBy + dy, centerBz + dz);
+								final int wx = centerBx + dx;
+								final int wy = centerBy + dy;
+								final int wz = centerBz + dz;
+								// Never break ground blocks under the player's feet (e.g. during rocket jumps or close combat)
+								final double hDistSq = (wx + 0.5 - playerX) * (wx + 0.5 - playerX)
+									+ (wz + 0.5 - playerZ) * (wz + 0.5 - playerZ);
+								if (wy <= playerFootY && hDistSq < 6.25) {
+									continue;
+								}
+								mpos.set(wx, wy, wz);
 								final BlockState state = serverLevel.getBlockState(mpos);
 								if (state.isAir()) {
 									continue;
@@ -365,7 +377,6 @@ public final class ActorSyncAndCombat {
 				final int bx = intParam1;
 				final int by = intParam2;
 				final int bz = intParam3;
-				final int weaponId = targetId;
 
 				server.executeIfPossible(() -> {
 					final ServerPlayer sp = server.getPlayerList().getPlayer(playerUuid);
@@ -383,10 +394,9 @@ public final class ActorSyncAndCombat {
 						serverLevel.removeBlock(pos, false);
 						return;
 					}
-					final float destroySpeed = state.getDestroySpeed(serverLevel, pos);
-					// Gauntlet (1) & Railgun (7) can break up to stone (1.5); bullets/plasma break fragile blocks (<= 0.8)
-					final float maxHardness = (weaponId == 1 || weaponId == 7) ? 2.0f : 0.8f;
-					if (destroySpeed >= 0.0f && destroySpeed <= maxHardness) {
+					// Hitscan weapons only shatter fragile glass/panes/ice, never dirt/grass/stone under the player's feet!
+					if (state.getBlock() instanceof net.minecraft.world.level.block.HalfTransparentBlock
+						|| state.is(net.minecraft.tags.BlockTags.IMPERMEABLE)) {
 						serverLevel.destroyBlock(pos, true, sp);
 					}
 				});

@@ -131,6 +131,20 @@ public final class PlayerControllerSync {
 				));
 				if (passthroughEnabled) {
 					issueTeleportToCurrentMcPos(bridge, player);
+				} else {
+					final IntegratedServer server = mc.getSingleplayerServer();
+					if (server != null) {
+						final java.util.UUID uuid = player.getUUID();
+						server.executeIfPossible(() -> {
+							final ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
+							if (sp != null) {
+								sp.noPhysics = false;
+								if (sp.connection != null) {
+									sp.connection.resetPosition();
+								}
+							}
+						});
+					}
 				}
 			}
 			prevF7Down = f7Down;
@@ -178,8 +192,8 @@ public final class PlayerControllerSync {
 		// Publish current frame/tick input to Quake 3
 		publishInputFrame(mc, bridge, player);
 
-		// Read latest authoritative Quake 3 pose
-		if (passthroughEnabled && readAndApplyQ3Pose(mc, bridge, player)) {
+		// Read latest authoritative Quake 3 pose and sync ServerPlayer on tick
+		if (passthroughEnabled && readAndApplyQ3Pose(mc, bridge, player, true)) {
 			// Check if Minecraft teleported the player externally (e.g. /tp command or dimension change)
 			final double dx = player.getX() - latestMcFeetX;
 			final double dy = player.getY() - latestMcFeetY;
@@ -196,7 +210,7 @@ public final class PlayerControllerSync {
 		}
 		publishInputFrame(mc, bridge, mc.player);
 		if (passthroughEnabled) {
-			readAndApplyQ3Pose(mc, bridge, mc.player);
+			readAndApplyQ3Pose(mc, bridge, mc.player, false);
 		}
 	}
 
@@ -310,7 +324,8 @@ public final class PlayerControllerSync {
 	private boolean readAndApplyQ3Pose(
 		final Minecraft mc,
 		final SharedMemoryBridge bridge,
-		final LocalPlayer player
+		final LocalPlayer player,
+		final boolean syncServer
 	) {
 		if (!anchorInitialized || teleportSeq == 0) {
 			hasValidPose = false;
@@ -407,25 +422,31 @@ public final class PlayerControllerSync {
 		player.setDeltaMovement(vx * scaleVel, vz * scaleVel, -vy * scaleVel);
 		player.resetFallDistance();
 
-		// Synchronize IntegratedServer ServerPlayer so chunk loading and mob AI track the Quake player
-		final IntegratedServer server = mc.getSingleplayerServer();
-		if (server != null) {
-			final double targetX = latestMcFeetX;
-			final double targetY = latestMcFeetY;
-			final double targetZ = latestMcFeetZ;
-			final java.util.UUID uuid = player.getUUID();
-			server.executeIfPossible(() -> {
-				final ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
-				if (sp != null) {
-					sp.xo = targetX;
-					sp.yo = targetY;
-					sp.zo = targetZ;
-					sp.setPos(targetX, targetY, targetZ);
-					sp.setOnGround(onGround);
-					sp.setDeltaMovement(0.0, 0.0, 0.0);
-					sp.resetFallDistance();
-				}
-			});
+		// Synchronize IntegratedServer ServerPlayer once per tick with noPhysics + resetPosition()
+		// so ServerGamePacketListenerImpl never rubberbands position or camera angles in Survival mode!
+		if (syncServer) {
+			final IntegratedServer server = mc.getSingleplayerServer();
+			if (server != null) {
+				final double targetX = latestMcFeetX;
+				final double targetY = latestMcFeetY;
+				final double targetZ = latestMcFeetZ;
+				final float targetYaw = latestMcYaw;
+				final float targetPitch = latestMcPitch;
+				final java.util.UUID uuid = player.getUUID();
+				server.executeIfPossible(() -> {
+					final ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
+					if (sp != null) {
+						sp.noPhysics = true;
+						sp.absSnapTo(targetX, targetY, targetZ, targetYaw, targetPitch);
+						sp.setOnGround(onGround);
+						sp.setDeltaMovement(0.0, 0.0, 0.0);
+						sp.resetFallDistance();
+						if (sp.connection != null) {
+							sp.connection.resetPosition();
+						}
+					}
+				});
+			}
 		}
 
 		return true;
