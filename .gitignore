@@ -52,3 +52,9 @@ exceptions.txt
 *.jpg
 *.mp4
 !docs/**/*.png
+
+# AI Agent metadata, instructions, and journals
+/.gemini/
+AGENTS.md
+CLAUDE.md
+MODLOG.md
