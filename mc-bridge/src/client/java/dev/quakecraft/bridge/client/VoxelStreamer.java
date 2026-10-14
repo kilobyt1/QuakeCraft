@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.IceBlock;
 import net.minecraft.world.level.block.LadderBlock;
 import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.SlimeBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -324,12 +325,23 @@ public final class VoxelStreamer {
 			return (byte) (SharedMemoryBridge.VOX_FENCE | flags);
 		}
 
+		if (block instanceof SnowLayerBlock) {
+			final int layers = state.hasProperty(SnowLayerBlock.LAYERS) ? state.getValue(SnowLayerBlock.LAYERS) : 1;
+			if (layers < 4) {
+				return (byte) SharedMemoryBridge.VOX_AIR;
+			}
+			if (layers < 8) {
+				return (byte) (SharedMemoryBridge.VOX_SLAB_BOTTOM | flags);
+			}
+			return (byte) (SharedMemoryBridge.VOX_SOLID | flags);
+		}
+
 		final VoxelShape collision = state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
 		if (collision.isEmpty()) {
 			return (byte) SharedMemoryBridge.VOX_AIR;
 		}
 		final double maxY = collision.max(Direction.Axis.Y);
-		if (maxY <= 0.125) {
+		if (maxY <= 0.35) {
 			return (byte) SharedMemoryBridge.VOX_AIR;
 		}
 		if (maxY <= 0.5625) {

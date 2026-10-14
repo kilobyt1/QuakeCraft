@@ -312,4 +312,20 @@ public final class SharedMemoryBridge {
 		while (y > 180.0f) y -= 360.0f;
 		return y;
 	}
+
+	private static volatile SharedMemoryBridge GLOBAL_INSTANCE = null;
+
+	public static boolean isPassthroughActive() {
+		try {
+			if (GLOBAL_INSTANCE == null) {
+				GLOBAL_INSTANCE = openOrCreate();
+			}
+			if (GLOBAL_INSTANCE != null && GLOBAL_INSTANCE.segment != null) {
+				final int flags = GLOBAL_INSTANCE.segment.get(INT, INPUT_FLAGS);
+				return (flags & FLAG_PASSTHROUGH_ON) != 0;
+			}
+		} catch (Throwable ignored) {
+		}
+		return false;
+	}
 }

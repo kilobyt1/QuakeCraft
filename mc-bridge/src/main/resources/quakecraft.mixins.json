@@ -3,7 +3,10 @@
 	"minVersion": "0.8",
 	"package": "dev.quakecraft.bridge.mixin",
 	"compatibilityLevel": "JAVA_25",
-	"mixins": [],
+	"mixins": [
+		"PlayerMixin",
+		"ServerGamePacketListenerImplMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	}

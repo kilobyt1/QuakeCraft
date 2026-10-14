@@ -366,12 +366,8 @@ static qboolean PM_CheckJump( void ) {
 		return qfalse;
 	}
 
-	// must wait for jump to be released
-	if ( pm->ps->pm_flags & PMF_JUMP_HELD ) {
-		// clear upmove so cmdscale doesn't lower running speed
-		pm->cmd.upmove = 0;
-		return qfalse;
-	}
+	// In QuakeCraft, auto-hopping is supported: holding jump allows immediate re-jump
+	// on touching the ground without hitching or sticking in ground friction.
 
 	pml.groundPlane = qfalse;		// jumping away
 	pml.walking = qfalse;
