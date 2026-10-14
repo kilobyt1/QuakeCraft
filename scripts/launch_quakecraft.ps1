@@ -45,8 +45,8 @@ if ($LaunchQuake) {
         "+set", "r_customheight", "480",
         "+set", "in_mouse", "0",
         "+set", "bot_enable", "0",
-        "+set", "com_maxfps", "60",
-        "+set", "pmove_fixed", "1",
+        "+set", "com_maxfps", "125",
+        "+set", "pmove_fixed", "0",
         "+set", "pmove_msec", "8",
         "+devmap", "q3dm1"
     )

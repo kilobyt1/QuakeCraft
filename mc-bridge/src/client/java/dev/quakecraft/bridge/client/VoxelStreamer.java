@@ -4,7 +4,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 import dev.quakecraft.bridge.SharedMemoryBridge;
-import it.unimi.dsi.fastutil.objects.Reference2ByteOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.tags.BlockTags;
@@ -40,10 +39,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * shared memory in ~20 microseconds so Quake 3 PMove never reads torn voxels.
  */
 public final class VoxelStreamer {
-	private static final Reference2ByteOpenHashMap<BlockState> STATE_CACHE = new Reference2ByteOpenHashMap<>(4096);
-	static {
-		STATE_CACHE.defaultReturnValue((byte) -1);
-	}
+	private static final java.util.concurrent.ConcurrentHashMap<BlockState, Byte> STATE_CACHE = new java.util.concurrent.ConcurrentHashMap<>(2048);
 
 	private final byte[] syncStagingCells = new byte[SharedMemoryBridge.VOXEL_TOTAL];
 	private final byte[] asyncStagingCells = new byte[SharedMemoryBridge.VOXEL_TOTAL];
@@ -60,7 +56,6 @@ public final class VoxelStreamer {
 	private volatile int pendingOriginX = Integer.MIN_VALUE;
 	private volatile int pendingOriginY = Integer.MIN_VALUE;
 	private volatile int pendingOriginZ = Integer.MIN_VALUE;
-	private long lastScanTimestampNs = 0L;
 	private int ticksSinceFullScan = 0;
 	private int updateCounter = 0;
 
@@ -86,11 +81,13 @@ public final class VoxelStreamer {
 		ticksSinceFullScan++;
 
 		if (forceImmediate) {
+			pendingOriginX = originX;
+			pendingOriginY = originY;
+			pendingOriginZ = originZ;
 			lastOriginX = originX;
 			lastOriginY = originY;
 			lastOriginZ = originZ;
 			ticksSinceFullScan = 0;
-			lastScanTimestampNs = System.nanoTime();
 			scanAndPublish(bridge, level, originX, originY, originZ, anchorMcX, anchorMcY, anchorMcZ, syncStagingCells);
 			return;
 		}
@@ -99,28 +96,26 @@ public final class VoxelStreamer {
 			return;
 		}
 
-		final long now = System.nanoTime();
-		if (scanInProgress.get() || (now - lastScanTimestampNs < 150_000_000L)) {
-			// Don't overwhelm weak CPUs (e.g. handhelds / APUs) with sub-150ms back-to-back scans during fast bunny-hopping
-			return;
-		}
-
 		pendingOriginX = originX;
 		pendingOriginY = originY;
 		pendingOriginZ = originZ;
-		lastOriginX = originX;
-		lastOriginY = originY;
-		lastOriginZ = originZ;
 		ticksSinceFullScan = 0;
 
 		if (scanInProgress.compareAndSet(false, true)) {
-			lastScanTimestampNs = now;
 			scanExecutor.submit(() -> {
 				try {
-					final int curOriginX = pendingOriginX;
-					final int curOriginY = pendingOriginY;
-					final int curOriginZ = pendingOriginZ;
-					scanAndPublish(bridge, level, curOriginX, curOriginY, curOriginZ, anchorMcX, anchorMcY, anchorMcZ, asyncStagingCells);
+					while (true) {
+						final int curX = pendingOriginX;
+						final int curY = pendingOriginY;
+						final int curZ = pendingOriginZ;
+						scanAndPublish(bridge, level, curX, curY, curZ, anchorMcX, anchorMcY, anchorMcZ, asyncStagingCells);
+						lastOriginX = curX;
+						lastOriginY = curY;
+						lastOriginZ = curZ;
+						if (pendingOriginX == curX && pendingOriginY == curY && pendingOriginZ == curZ) {
+							break;
+						}
+					}
 				} catch (Throwable ignored) {
 				} finally {
 					scanInProgress.set(false);
@@ -249,9 +244,9 @@ public final class VoxelStreamer {
 	}
 
 	private static byte encodeCached(final BlockState state) {
-		final byte cached = STATE_CACHE.getByte(state);
-		if (cached != (byte) -1) {
-			return cached;
+		final Byte cached = STATE_CACHE.get(state);
+		if (cached != null) {
+			return cached.byteValue();
 		}
 		final byte computed = computeBlockStateCode(state);
 		STATE_CACHE.put(state, computed);

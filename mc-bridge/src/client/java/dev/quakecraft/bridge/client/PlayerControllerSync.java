@@ -522,6 +522,10 @@ public final class PlayerControllerSync {
 				final float targetYaw = latestMcYaw;
 				final float targetPitch = latestMcPitch;
 				final boolean targetOnGround = onGround && !inWater;
+				final double scaleVel = SharedMemoryBridge.SCALE_MC_PER_Q3 / 20.0;
+				final double targetVx = vx * scaleVel;
+				final double targetVy = vz * scaleVel;
+				final double targetVz = -vy * scaleVel;
 				final java.util.UUID uuid = player.getUUID();
 				server.executeIfPossible(() -> {
 					final ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
@@ -529,7 +533,7 @@ public final class PlayerControllerSync {
 						sp.noPhysics = true;
 						sp.absSnapTo(targetX, targetY, targetZ, targetYaw, targetPitch);
 						sp.setOnGround(targetOnGround);
-						sp.setDeltaMovement(0.0, 0.0, 0.0);
+						sp.setDeltaMovement(targetVx, targetVy, targetVz);
 						sp.resetFallDistance();
 						if (sp.connection != null) {
 							sp.connection.resetPosition();

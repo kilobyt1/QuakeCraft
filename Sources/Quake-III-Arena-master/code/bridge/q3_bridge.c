@@ -171,7 +171,7 @@ static void QCB_ClipBoxToBox(
     if (isPositionTest) {
         if (start[0] > cmin[0] + 0.125f && start[0] < cmax[0] - 0.125f &&
             start[1] > cmin[1] + 0.125f && start[1] < cmax[1] - 0.125f &&
-            start[2] > cmin[2] + 0.125f && start[2] < cmax[2] - 0.25f) {
+            start[2] > cmin[2] + 0.125f && start[2] < cmax[2] - 0.5f) {
             trace->startsolid = qtrue;
             trace->allsolid = qtrue;
             trace->fraction = 0.0f;
